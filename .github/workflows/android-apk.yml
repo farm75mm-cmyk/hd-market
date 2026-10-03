@@ -1,0 +1,30 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - run: pnpm install --no-frozen-lockfile
+      - run: npx --yes eas-cli@latest whoami
+      - name: Link Expo project
+        run: npx --yes eas-cli@latest init --non-interactive --force
+      - name: Build APK on EAS
+        run: npx --yes eas-cli@latest build --platform android --profile preview --non-interactive --wait --json | tee build.json
+      - name: Show download link
+        run: |
+          echo "APK_URL=$(node -e "const b=JSON.parse(require('fs').readFileSync('build.json','utf8'));console.log((Array.isArray(b)?b[0]:b).artifacts?.buildUrl||'')")"
