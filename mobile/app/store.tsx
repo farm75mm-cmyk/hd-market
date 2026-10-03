@@ -15,6 +15,8 @@ import {
 
 import { AXE_ITEMS } from "@/lib/axe-data";
 import { FOOD_ITEMS } from "@/lib/food-data";
+import { api } from "@/lib/api";
+import { getSession } from "@/lib/auth-server";
 import { ScreenContainer } from "@/components/screen-container";
 import {
   formatStoreClock,
@@ -140,6 +142,32 @@ export default function StoreScreen() {
   const copy = COPY[locale];
   const rtl = locale === "ar";
   const [now, setNow] = useState(() => new Date());
+  const [balance, setBalance] = useState(0);
+  const [serverCats, setServerCats] = useState<{ id: number; name: string; image: string | null }[]>([]);
+  const [prodCount, setProdCount] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const [acc, cat] = await Promise.all([getSession(), api("catalog")]);
+        if (!alive) return;
+        if (acc) setBalance(acc.balance);
+        setServerCats(cat.categories ?? []);
+        const counts: Record<number, number> = {};
+        for (const p of cat.products ?? []) counts[p.category_id] = (counts[p.category_id] ?? 0) + 1;
+        setProdCount(counts);
+      } catch {
+        /* offline handled by the app gate */
+      }
+    };
+    void load();
+    const id = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000);
@@ -156,6 +184,30 @@ export default function StoreScreen() {
   const openSoon = (title: string) => {
     Alert.alert(title, copy.comingSoon);
   };
+
+  const renderServerCategory = (c: { id: number; name: string; image: string | null }) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={c.name}
+      onPress={() => router.push({ pathname: "/category", params: { locale, id: String(c.id), name: c.name } })}
+      style={({ pressed }) => [styles.categoryCard, pressed && styles.pressedCard]}
+    >
+      {c.image ? (
+        <Image source={{ uri: c.image }} style={styles.categoryImage} contentFit="cover" />
+      ) : (
+        <View style={[styles.categoryImage, { backgroundColor: "#EEE" }]} />
+      )}
+      <View style={styles.categoryInfo}>
+        <Text style={[styles.categoryName, rtl ? styles.textRtl : styles.textLtr]}>{c.name}</Text>
+        <Text style={[styles.categoryCount, rtl ? styles.textRtl : styles.textLtr]}>
+          {prodCount[c.id] ?? 0} {unit}
+        </Text>
+      </View>
+    </Pressable>
+  );
+
+  const renderEntry = ({ item }: { item: CategoryId | { id: number; name: string; image: string | null } }) =>
+    typeof item === "string" ? renderCategory({ item }) : renderServerCategory(item);
 
   const renderCategory = ({ item }: { item: CategoryId }) => (
     <Pressable
@@ -219,11 +271,11 @@ export default function StoreScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={copy.wallet}
-          onPress={() => openSoon(copy.wallet)}
+          onPress={() => router.push({ pathname: "/wallet", params: { locale } })}
           style={({ pressed }) => [styles.balancePill, pressed && styles.pressedSoft]}
         >
           <Ionicons name="wallet-outline" size={22} color="#FFFFFF" />
-          <Text style={styles.balanceText}>0.00</Text>
+          <Text style={styles.balanceText}>{balance.toFixed(2)}</Text>
         </Pressable>
         <Text style={[styles.pageTitle, rtl ? styles.textRtl : styles.textLtr]}>{copy.store}</Text>
       </View>
@@ -243,9 +295,9 @@ export default function StoreScreen() {
       <StatusBar style="dark" />
       <View style={styles.page}>
         <FlatList
-          data={CATEGORY_ORDER}
-          renderItem={renderCategory}
-          keyExtractor={(item) => item}
+          data={[...CATEGORY_ORDER, ...serverCats] as (CategoryId | { id: number; name: string; image: string | null })[]}
+          renderItem={renderEntry}
+          keyExtractor={(item) => (typeof item === "string" ? item : `s${item.id}`)}
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.listContent}
@@ -264,6 +316,14 @@ export default function StoreScreen() {
                 onPress={() => {
                   if (tab.id === "account") {
                     router.replace({ pathname: "/account", params: { locale } });
+                    return;
+                  }
+                  if (tab.id === "wallet") {
+                    router.push({ pathname: "/wallet", params: { locale } });
+                    return;
+                  }
+                  if (tab.id === "support" || tab.id === "chat") {
+                    router.push({ pathname: "/support", params: { locale } });
                     return;
                   }
                   if (!active) openSoon(copy[tab.id]);

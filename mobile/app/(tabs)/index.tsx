@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 
-import { getSession, loginAccount, registerAccount, saveSession } from "@/lib/auth-local";
+import { getSession, loginAccount, registerAccount, saveSession } from "@/lib/auth-server";
 import { ScreenContainer } from "@/components/screen-container";
 
 type Locale = "ar" | "en" | "vi" | "zh";
@@ -64,6 +64,25 @@ type Copy = {
   emailTaken: string;
   usernameTaken: string;
   close: string;
+};
+
+const NET_MSG: Record<Locale, string> = {
+  ar: "تعذّر الاتصال بالخادم. حاول مرة أخرى.",
+  en: "Couldn't reach the server. Please try again.",
+  vi: "Không thể kết nối máy chủ. Vui lòng thử lại.",
+  zh: "无法连接服务器，请重试。",
+};
+const BANNED_MSG: Record<Locale, string> = {
+  ar: "تم حظر هذا الحساب.",
+  en: "This account has been banned.",
+  vi: "Tài khoản này đã bị khóa.",
+  zh: "该账户已被封禁。",
+};
+const MAINT_MSG: Record<Locale, string> = {
+  ar: "التطبيق تحت الصيانة حاليًا. حاول لاحقًا.",
+  en: "The app is under maintenance. Please try later.",
+  vi: "Ứng dụng đang bảo trì. Vui lòng thử lại sau.",
+  zh: "应用正在维护中，请稍后再试。",
 };
 
 const COPY: Record<Locale, Copy> = {
@@ -392,7 +411,10 @@ export default function AccountScreen() {
         const result = await registerAccount(AsyncStorage, { username, email: identifier, password });
         if (!result.ok) {
           if (result.error === "usernameTaken") fail({ username: copy.usernameTaken });
-          else fail({ email: copy.emailTaken });
+          else if (result.error === "emailTaken") fail({ email: copy.emailTaken });
+          else if (result.error === "maintenance") fail({ email: MAINT_MSG[locale] });
+          else if (result.error === "invalid") fail({ email: copy.emailError });
+          else fail({ email: NET_MSG[locale] });
           return;
         }
         if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -407,7 +429,10 @@ export default function AccountScreen() {
         else if (result.error === "locked") {
           const minutes = Math.max(1, Math.ceil((result.retryAfterSec ?? 300) / 60));
           fail({ password: copy.lockedOut.replace("{m}", String(minutes)) });
-        } else fail({ password: copy.wrongPassword });
+        } else if (result.error === "banned") fail({ password: BANNED_MSG[locale] });
+        else if (result.error === "maintenance") fail({ password: MAINT_MSG[locale] });
+        else if (result.error === "network") fail({ password: NET_MSG[locale] });
+        else fail({ password: copy.wrongPassword });
         return;
       }
       await saveSession(AsyncStorage, result.account.email);

@@ -1,0 +1,91 @@
+import { Image } from "expo-image";
+import { useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, FlatList, Pressable, Text, View } from "react-native";
+
+import { Page, s } from "@/components/app-shell";
+import { api, ApiError } from "@/lib/api";
+import { errText, tr, useLocale } from "@/lib/i18n-app";
+
+type Product = { id: number; category_id: number; name: string; image: string | null; price: number; qty: number };
+
+export default function CategoryScreen() {
+  const params = useLocalSearchParams<{ locale?: string; id?: string; name?: string }>();
+  const one = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
+  const L = useLocale(one(params.locale));
+  const rtl = L === "ar";
+  const cid = Number(one(params.id));
+  const [products, setProducts] = useState<Product[]>([]);
+  const [qty, setQty] = useState<Record<number, number>>({});
+  const [busy, setBusy] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api("catalog");
+      setProducts((d.products as Product[]).filter((p) => p.category_id === cid));
+    } catch {
+      /* ignore */
+    }
+  }, [cid]);
+  useEffect(() => {
+    void load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const buy = (p: Product) => {
+    const n = qty[p.id] ?? 1;
+    Alert.alert(p.name, `${tr(L, "confirmBuy")}\n${tr(L, "qty")}: ${n}\n${tr(L, "total")}: ${(p.price * n).toFixed(2)}`, [
+      { text: tr(L, "back"), style: "cancel" },
+      {
+        text: tr(L, "buy"),
+        onPress: async () => {
+          setBusy(p.id);
+          try {
+            await api("order_create", { product_id: p.id, qty: n }, true);
+            Alert.alert(tr(L, "orders"), tr(L, "bought"));
+            setQty((q) => ({ ...q, [p.id]: 1 }));
+            await load();
+          } catch (e) {
+            Alert.alert(tr(L, "err"), errText(L, e instanceof ApiError ? e.code : "network"));
+          } finally {
+            setBusy(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  return (
+    <Page title={one(params.name) ?? ""} locale={L}>
+      <FlatList
+        data={products}
+        keyExtractor={(p) => String(p.id)}
+        contentContainerStyle={{ padding: 14 }}
+        ListEmptyComponent={<Text style={[s.muted, { textAlign: "center", marginTop: 40 }]}>{tr(L, "noProducts")}</Text>}
+        renderItem={({ item: p }) => {
+          const n = qty[p.id] ?? 1;
+          return (
+            <View style={[s.card, { flexDirection: rtl ? "row-reverse" : "row", gap: 12, alignItems: "center" }]}>
+              {p.image ? <Image source={{ uri: p.image }} style={{ width: 84, height: 84, borderRadius: 12 }} contentFit="cover" /> : <View style={{ width: 84, height: 84, borderRadius: 12, backgroundColor: "#EEE" }} />}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: "800", fontSize: 16, textAlign: rtl ? "right" : "left" }}>{p.name}</Text>
+                <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "price")}: <Text style={{ color: "#050505", fontWeight: "800" }}>{p.price}</Text> · {tr(L, "qty")}: {p.qty}</Text>
+                {p.qty > 0 ? (
+                  <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <Pressable onPress={() => setQty((q) => ({ ...q, [p.id]: Math.max(1, n - 1) }))} style={[s.btn, { width: 36, height: 36, paddingHorizontal: 0, backgroundColor: "#EEE" }]}><Text style={{ fontSize: 20 }}>−</Text></Pressable>
+                    <Text style={{ fontWeight: "800", minWidth: 24, textAlign: "center" }}>{n}</Text>
+                    <Pressable onPress={() => setQty((q) => ({ ...q, [p.id]: Math.min(p.qty, n + 1) }))} style={[s.btn, { width: 36, height: 36, paddingHorizontal: 0, backgroundColor: "#EEE" }]}><Text style={{ fontSize: 20 }}>+</Text></Pressable>
+                    <Pressable disabled={busy === p.id} onPress={() => buy(p)} style={[s.btn, { height: 38, flex: 1, opacity: busy === p.id ? 0.6 : 1 }]}><Text style={s.btnText}>{tr(L, "buy")}</Text></Pressable>
+                  </View>
+                ) : (
+                  <Text style={[s.chip, { backgroundColor: "#FDE8E8", alignSelf: rtl ? "flex-end" : "flex-start", marginTop: 8 }]}>{tr(L, "soldOut")}</Text>
+                )}
+              </View>
+            </View>
+          );
+        }}
+      />
+    </Page>
+  );
+}

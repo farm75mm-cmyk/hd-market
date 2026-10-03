@@ -23,6 +23,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { api, type AppConfig } from "@/lib/api";
+
 const LOGO = require("@/assets/images/hd-market-logo.png");
 const MIN_SPLASH_MS = 2400;
 const PING_URL = "https://clients3.google.com/generate_204";
@@ -162,7 +166,39 @@ function Offline({ locale, checking, onRetry }: { locale: Locale; checking: bool
   );
 }
 
+const MAINT_TITLE: Record<Locale, { t: string; r: string }> = {
+  ar: { t: "تحت الصيانة", r: "إعادة المحاولة" },
+  en: { t: "Under maintenance", r: "Try again" },
+  vi: { t: "Đang bảo trì", r: "Thử lại" },
+  zh: { t: "维护中", r: "重试" },
+};
+
+function Maintenance({ locale, message, onRetry }: { locale: Locale; message: string; onRetry: () => void }) {
+  const t = MAINT_TITLE[locale];
+  return (
+    <Animated.View style={styles.fill} entering={FadeIn.duration(300)}>
+      <Image source={LOGO} style={styles.offlineLogo} resizeMode="contain" />
+      <Text style={styles.wifi}>🛠️</Text>
+      <Text style={[styles.title, { writingDirection: TEXT[locale].dir }]}>{t.t}</Text>
+      <Text style={[styles.body, { writingDirection: TEXT[locale].dir }]}>{message}</Text>
+      <Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => [styles.button, pressed && { opacity: 0.7 }]}>
+        <Text style={styles.buttonText}>{t.r}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function Banner({ text }: { text: string }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ backgroundColor: "#E8A900", paddingTop: Math.max(insets.top, 8), paddingBottom: 8, paddingHorizontal: 14 }}>
+      <Text style={{ color: "#111", fontWeight: "800", fontSize: 14, textAlign: "center" }}>{text}</Text>
+    </View>
+  );
+}
+
 export function AppGate({ children }: { children: ReactNode }) {
+  const [cfg, setCfg] = useState<AppConfig | null>(null);
   const [splashDone, setSplashDone] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
@@ -201,6 +237,20 @@ export function AppGate({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [online, check]);
 
+  const loadCfg = useCallback(async () => {
+    try {
+      setCfg(await api("config"));
+    } catch {
+      /* keep the last known config */
+    }
+  }, []);
+  useEffect(() => {
+    if (!online) return;
+    void loadCfg();
+    const id = setInterval(loadCfg, 20000);
+    return () => clearInterval(id);
+  }, [online, loadCfg]);
+
   if (!splashDone || online === null) {
     return (
       <View style={styles.root}>
@@ -215,7 +265,19 @@ export function AppGate({ children }: { children: ReactNode }) {
       </View>
     );
   }
-  return <>{children}</>;
+  if (cfg?.maintenance.on) {
+    return (
+      <View style={styles.root}>
+        <Maintenance locale={locale} message={cfg.maintenance.message} onRetry={loadCfg} />
+      </View>
+    );
+  }
+  return (
+    <View style={{ flex: 1 }}>
+      {cfg?.banner.on && cfg.banner.text ? <Banner text={cfg.banner.text} /> : null}
+      <View style={{ flex: 1 }}>{children}</View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

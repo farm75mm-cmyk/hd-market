@@ -21,7 +21,7 @@ import {
 } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
-import { clearSession, getSession, renameAccount } from "@/lib/auth-local";
+import { clearSession, getSession, renameAccount, syncAvatar } from "@/lib/auth-server";
 import { getUsernameChangeDaysRemaining } from "@/lib/profile-utils";
 import {
   formatStoreClock,
@@ -372,11 +372,11 @@ export default function AccountDetailsScreen() {
       } catch {
         base = {};
       }
-      const nextName = base.name?.trim() || account?.username || DEFAULT_PROFILE.name;
+      const nextName = account?.username || base.name?.trim() || DEFAULT_PROFILE.name;
       setSavedName(nextName);
       setName(nextName);
       setEmail(account?.email || base.email?.trim() || DEFAULT_PROFILE.email);
-      setAvatarUri(base.avatarUri || null);
+      setAvatarUri(account?.avatar || base.avatarUri || null);
       setLastNameChangeAt(base.lastNameChangeAt || null);
       setMemberSince(account?.createdAt ?? null);
     })().catch(() => undefined);
@@ -449,6 +449,7 @@ export default function AccountDetailsScreen() {
         ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
         : asset.uri;
       setAvatarUri(nextAvatar);
+      void syncAvatar(nextAvatar);
       await persistProfile({
         name: savedName,
         email,
@@ -490,8 +491,10 @@ export default function AccountDetailsScreen() {
     try {
       if (nextName !== savedName) {
         const renamed = await renameAccount(AsyncStorage, email, nextName);
-        if (!renamed.ok && renamed.error === "usernameTaken") {
-          setNameError(copy.nameTaken);
+        if (!renamed.ok) {
+          if (renamed.error === "usernameTaken") setNameError(copy.nameTaken);
+          else if (renamed.error === "tooSoon") setNameError(copy.changeBlocked(renamed.days ?? 15));
+          else setNameError(renamed.error === "network" ? "تعذّر الاتصال بالخادم / Couldn't reach the server" : copy.nameTaken);
           return;
         }
       }
