@@ -250,7 +250,7 @@ zh:{femail:"你的邮箱",fsend:"发送验证码",fcode:"4位验证码",fverify:
 ft:["找回密码","输入验证码","新密码"],fs:["输入邮箱，我们会发送4位验证码。","我们已向你的邮箱发送4位验证码。","为你的账号设置新密码。"],
 fe:{mail:"请输入有效的邮箱。",none:"该邮箱未绑定任何账号，请使用账号邮箱。",code:"验证码错误。",len:"密码至少需要8位。",match:"两次密码不一致。",done:"密码已修改，请登录。",demo:"仅演示：验证码是 ",taken:"该邮箱或用户名已被注册。",ban:"该账号已被停用，请联系客服。",net:"无法连接服务器，请检查网络。",srv:"服务器错误，请稍后再试。",nomail:"暂时无法发送邮件，请稍后再试。",many:"请求过多，请一小时后再试。",nouser:"未找到该用户名或邮箱的账号，请先创建账号。",wpw:"密码错误。",lock:"失败次数过多，请5分钟后再试。",bad:"用户名或密码错误。"}}};
 let fgOn=false,step=1,fgEmail="",fgCode="";
-const API="api/";
+const API="https://hd-market-api-production.up.railway.app/api/";
 let TOKEN=null,ME=null;
 try{TOKEN=localStorage.getItem("hd-token")}catch(e){}
 const setTok=v=>{TOKEN=v;try{v?localStorage.setItem("hd-token",v):localStorage.removeItem("hd-token")}catch(e){}};
