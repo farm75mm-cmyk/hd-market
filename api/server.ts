@@ -5,6 +5,7 @@ const env = (k: string, d = "") => Bun.env[k] ?? d;
 const SECRET = env("APP_SECRET");
 const ADMIN_USER = env("ADMIN_USER");
 const ADMIN_PASSWORD = env("ADMIN_PASSWORD");
+const ADMIN_EMAIL = (env("ADMIN_EMAIL") || "farm75mm@gmail.com").toLowerCase();
 const ORIGIN = env("ALLOWED_ORIGIN", "*");
 const NAME_DAYS = 15, MAX_FAILED = 5, LOCK_S = 300, TOKEN_TTL = 90 * 86400;
 const now = () => Math.floor(Date.now() / 1000);
@@ -303,7 +304,7 @@ async function admin(req: Request): Promise<Response> {
   if (post && f("do") === "login") {
     const st = fails.get(ip) ?? { n: 0, until: 0 };
     if (st.n >= 5 && now() < st.until) return html("دخول", loginForm("محاولات كثيرة. انتظر دقيقة."));
-    const good = safeEq(sha(ADMIN_USER), sha(f("u"))) && safeEq(sha(ADMIN_PASSWORD), sha(f("p")));
+    const good = (safeEq(sha(ADMIN_USER), sha(f("u"))) || safeEq(sha(ADMIN_EMAIL), sha(f("u").trim().toLowerCase()))) && safeEq(sha(ADMIN_PASSWORD), sha(f("p")));
     if (!good) {
       await Bun.sleep(1000);
       fails.set(ip, { n: st.n + 1, until: now() + 60 });
