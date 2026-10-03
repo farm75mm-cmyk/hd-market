@@ -8,7 +8,7 @@ jobs:
       run:
         working-directory: mobile
     env:
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || 'bnE50DJl3uA7BxSwpiSCEJldwt5d68yGi-UhuhjK' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
