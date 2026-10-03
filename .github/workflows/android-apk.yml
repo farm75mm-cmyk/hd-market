@@ -22,7 +22,9 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: npx --yes eas-cli@latest whoami
       - name: Link Expo project
-        run: npx --yes eas-cli@latest init --non-interactive --force
+        run: |
+          npx --yes eas-cli@latest init --non-interactive --force > init.log 2>&1 || { echo "::error::$(sed 's/\x1b\[[0-9;]*m//g' init.log | tail -15 | tr '\n' ' ')"; exit 1; }
+          cat init.log
       - name: Build APK on EAS
         run: npx --yes eas-cli@latest build --platform android --profile preview --non-interactive --wait --json | tee build.json
       - name: Show download link
