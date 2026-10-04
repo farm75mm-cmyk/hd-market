@@ -123,7 +123,7 @@ function frame() {
     ${walletPage ? "" : `<button class="ib" data-a="lang" aria-label="language">${ic("globe")}</button>`}
     <button class="ib" data-a="acct" aria-label="account">${S.user?.avatar ? `<img src="${esc(S.user.avatar)}" alt="">` : ic("user")}</button>
     <div class="ibw"><button class="ib" data-a="bell" aria-label="alerts">${ic("bell")}</button><span class="badge" id="bdg" ${S.unread ? "" : "hidden"}>${S.unread > 99 ? "99+" : S.unread}</span></div>
-  </div></div>
+  </div><div class="tick" id="tick" hidden></div></div>
   <div id="view"></div>
   <nav class="nav">
     <a href="#/" class="${navOn("/")}">${ic("home")}${T("الرئيسية", "Home")}</a>
@@ -132,8 +132,16 @@ function frame() {
     <a href="#/support" class="${navOn("/support")}">${ic("chat")}${T("الدعم", "Support")}</a>
     <a href="#/account" class="${navOn("/account")}">${ic("user")}${T("حسابي", "Account")}</a>
   </nav>`;
-  tick();
+  tick(); drawTicker();
 }
+function drawTicker() {
+  const el = $("#tick"); if (!el) return; const b = S.cfg?.banner, txt = b && b.on ? String(b.text || "").trim() : "";
+  if (!txt) { el.hidden = true; el.dataset.t = ""; return; }
+  el.hidden = false; if (el.dataset.t === txt) return; el.dataset.t = txt;
+  const d = Math.max(12, Math.round(txt.length * 0.35 + 8));
+  el.innerHTML = `<span style="animation-duration:${d}s">${esc(txt)}</span>`;
+}
+setInterval(async () => { if (document.hidden) return; try { S.cfg = await api("config", {}, false); drawTicker(); } catch {} }, 20000);
 function maint(msg) {
   $("#app").innerHTML = `<div class="full"><div><img src="/img/logo-192.png" width="90" style="border-radius:22px"><h2 style="margin:14px 0 6px">${T("صيانة", "Maintenance")}</h2><p class="mut">${esc(msg || "")}</p><button class="btn sm" style="margin-top:16px" onclick="location.reload()">${T("إعادة المحاولة", "Retry")}</button></div></div>`;
 }
@@ -235,7 +243,6 @@ on(/^\/$/, async () => {
   const t = (to, title, sub, im, icn) => `<a class="tile ${im ? "" : "noimg"}" href="#${to}">${im ? img(im, "") : ""}<span class="ico">${ic(icn)}</span><span>${esc(title)}<small>${esc(sub)}</small></span></a>`;
   const c = h.counts, cats = h.categories || [];
   view(`<div class="page">
-    ${S.cfg?.banner?.on && S.cfg.banner.text ? `<div class="ban">${esc(S.cfg.banner.text)}</div>` : ""}
     <div class="seg" style="margin-bottom:12px">${CURS.map((x) => `<button class="${x === S.cur ? "on" : ""}" data-a="cur" data-v="${x}">${x}</button>`).join("")}</div>
     <div class="tiles">
       ${t("/opt", T("منتجات اختياري", "Optional products"), `${c.opt} ${T("منتج", "items")}`, TILE_IMG.opt, "bag")}

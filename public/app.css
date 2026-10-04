@@ -123,3 +123,6 @@ a{color:inherit;text-decoration:none}
 .stp{direction:ltr}
 .btn.sp{display:flex;align-items:center;justify-content:center;gap:6px}
 input[type=radio]{width:auto!important;margin-inline-end:6px}
+.tick{background:var(--gold);color:#111;overflow:hidden;white-space:nowrap;direction:ltr;font-weight:800;font-size:14px;padding:6px 0;max-width:520px;margin:auto}
+.tick span{display:inline-block;padding-inline-start:100%;animation:mq 20s linear infinite;unicode-bidi:plaintext}
+@keyframes mq{from{transform:translateX(0)}to{transform:translateX(-100%)}}
