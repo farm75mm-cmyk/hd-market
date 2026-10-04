@@ -60,6 +60,19 @@ if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v1"]))) {
   }
   await putSet("seed_tools_v1", "1");
 }
+if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v2"]))) {
+  const NEW = "أدوات الحظيرة والأرض والصومعة";
+  const a = await first(`SELECT id FROM categories WHERE name = $1`, ["أدوات حظيرة"]);
+  const others: any[] = [];
+  for (const n of ["أدوات أرض", "أدوات صومعة"]) { const r = await first(`SELECT id FROM categories WHERE name = $1`, [n]); if (r) others.push(r.id); }
+  if (a) {
+    await run(`UPDATE categories SET name = $1, sort = 1 WHERE id = $2`, [NEW, a.id]);
+    for (const o of others) { await run(`UPDATE products SET category_id = $1 WHERE category_id = $2`, [a.id, o]); await run(`DELETE FROM categories WHERE id = $1`, [o]); }
+  } else if (!(await first(`SELECT 1 FROM categories WHERE name = $1`, [NEW]))) {
+    await run(`INSERT INTO categories (name, image, sort, created_at) VALUES ($1,NULL,1,$2)`, [NEW, now()]);
+  }
+  await putSet("seed_tools_v2", "1");
+}
 const IMG_RE =/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
 const okImg = (v: any) => typeof v === "string" && v.length <= 450000 && IMG_RE.test(v);
 const ORDER_STATUS: Record<string, string> = { new: "جديد", processing: "قيد التنفيذ", done: "مكتمل", cancelled: "ملغي" };
