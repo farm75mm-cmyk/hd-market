@@ -54,4 +54,5 @@ export type AppConfig = {
   maintenance: { on: boolean; message: string };
   banner: { on: boolean; text: string };
   wallets: Wallet[];
+  update?: { version: string; url: string; notes: string; force: boolean };
 };

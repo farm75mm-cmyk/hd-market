@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   AppState,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -25,7 +26,9 @@ import Animated, {
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { UpdateScreen } from "@/components/update-screen";
 import { api, type AppConfig } from "@/lib/api";
+import { currentVersion, isNewer } from "@/lib/app-update";
 
 const LOGO = require("@/assets/images/hd-market-logo.png");
 const MIN_SPLASH_MS = 2400;
@@ -204,6 +207,7 @@ export function AppGate({ children }: { children: ReactNode }) {
   const [checking, setChecking] = useState(false);
   const [locale, setLocale] = useState<Locale>("ar");
   const busy = useRef(false);
+  const [skipped, setSkipped] = useState("");
 
   const check = useCallback(async () => {
     if (busy.current) return;
@@ -269,6 +273,14 @@ export function AppGate({ children }: { children: ReactNode }) {
     return (
       <View style={styles.root}>
         <Maintenance locale={locale} message={cfg.maintenance.message} onRetry={loadCfg} />
+      </View>
+    );
+  }
+  const up = cfg?.update;
+  if (Platform.OS === "android" && up && up.url && isNewer(up.version, currentVersion()) && (up.force || skipped !== up.version)) {
+    return (
+      <View style={styles.root}>
+        <UpdateScreen locale={locale} version={up.version} url={up.url} notes={up.notes} force={!!up.force} onLater={() => setSkipped(up.version)} />
       </View>
     );
   }

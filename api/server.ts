@@ -259,6 +259,7 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
       maintenance: { on: (await getSet("maint_on")) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
       banner: { on: (await getSet("banner_on")) === "1", text: await getSet("banner_text") },
       wallets,
+      update: { version: (await getSet("upd_version")) || env("UPDATE_VERSION"), url: (await getSet("upd_url")) || env("UPDATE_URL"), notes: (await getSet("upd_notes")) || env("UPDATE_NOTES"), force: ((await getSet("upd_force")) || env("UPDATE_FORCE")) === "1" },
     });
   },
   async catalog() {
@@ -526,6 +527,7 @@ async function adminAct(act: string, f: (k: string) => string): Promise<string> 
     case "set_save":
       await putSet("maint_on", f("maint_on") === "1" ? "1" : "0"); await putSet("maint_msg", f("maint_msg").trim().slice(0, 300));
       await putSet("banner_on", f("banner_on") === "1" ? "1" : "0"); await putSet("banner_text", f("banner_text").trim().slice(0, 300));
+      await putSet("upd_version", f("upd_version").trim().slice(0, 20)); await putSet("upd_url", f("upd_url").trim().slice(0, 500)); await putSet("upd_notes", f("upd_notes").trim().slice(0, 300)); await putSet("upd_force", f("upd_force") === "1" ? "1" : "0");
       return "تم حفظ الإعدادات";
   }
   return "";
@@ -608,6 +610,12 @@ async function adminShell(tab: string, csrf: string, flash: string, url: URL): P
       <hr style="border:0;border-top:1px solid #eee">
       <p><label><input type="checkbox" name="banner_on" value="1"${bo ? " checked" : ""}> <b>إظهار شريط إعلاني</b> في أعلى التطبيق</label></p>
       <p><textarea name="banner_text" placeholder="نص الإعلان">${h(await getSet("banner_text"))}</textarea></p>
+      <hr style="border:0;border-top:1px solid #eee">
+      <p><b>تحديث التطبيق (أندرويد)</b> — يظهر للمستخدمين شاشة تحميل من 0 إلى 100% ثم يُثبَّت التحديث. اتركه فارغًا لإيقافه.</p>
+      <p><input type="text" name="upd_version" placeholder="رقم الإصدار الجديد مثل 3.2.0" dir="ltr" value="${h(await getSet("upd_version"))}"></p>
+      <p><input type="text" name="upd_url" placeholder="رابط ملف APK" dir="ltr" value="${h(await getSet("upd_url"))}"></p>
+      <p><textarea name="upd_notes" placeholder="ما الجديد في التحديث (اختياري)">${h(await getSet("upd_notes"))}</textarea></p>
+      <p><label><input type="checkbox" name="upd_force" value="1"${(await getSet("upd_force")) === "1" ? " checked" : ""}> تحديث إجباري (بلا زر «لاحقًا»)</label></p>
       <button class="y">حفظ</button>`)}</div>`;
     return out + `</div>`;
   }
