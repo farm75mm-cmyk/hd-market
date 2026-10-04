@@ -1,5 +1,6 @@
 // Load environment variables with proper priority (system > .env)
 import "./scripts/load-env.js";
+import { existsSync } from "node:fs";
 import type { ExpoConfig } from "expo/config";
 
 // Bundle ID format: space.manus.<project_name_dots>.<timestamp>
@@ -63,6 +64,7 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: env.androidPackage,
+    ...(existsSync("./google-services.json") ? { googleServicesFile: "./google-services.json" } : {}),
     permissions: ["POST_NOTIFICATIONS"],
     intentFilters: [
       {
@@ -85,6 +87,14 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/images/notification-icon.png",
+        color: "#000000",
+        defaultChannel: "support",
+      },
+    ],
     [
       "expo-image-picker",
       {

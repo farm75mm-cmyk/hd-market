@@ -52,6 +52,7 @@ await run(`CREATE TABLE IF NOT EXISTS orders (id ${serial}, user_id BIGINT NOT N
 await run(`CREATE TABLE IF NOT EXISTS topups (id ${serial}, user_id BIGINT NOT NULL, wallet_id BIGINT NOT NULL, wallet_name TEXT NOT NULL, amount DOUBLE PRECISION NOT NULL,
   receipt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', note TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS messages (id ${serial}, user_id BIGINT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL, seen INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS push_tokens (token TEXT PRIMARY KEY, user_id BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
 const getSet = async (k: string, d = "") => String((await first(`SELECT v FROM settings WHERE k = $1`, [k]))?.v ?? d);
 const putSet = async (k: string, v: string) => { await run(`DELETE FROM settings WHERE k = $1`, [k]); await run(`INSERT INTO settings (k, v) VALUES ($1, $2)`, [k, v]); };
 if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v1"]))) {
@@ -132,6 +133,21 @@ async function sendResetMail(to: string, lang: string, code: string) {
   } catch { return false; }
 }
 
+async function sendPush(uid: number) {
+  const rows = await run(`SELECT token FROM push_tokens WHERE user_id = $1`, [uid]);
+  if (!rows.length) return;
+  try {
+    const r = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(rows.map((x) => ({ to: x.token, title: "HD Market", body: "وصل رد جديد من الدعم", data: { screen: "support" }, sound: "default", channelId: "support", priority: "high" }))),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    const list: any[] = Array.isArray(j.data) ? j.data : [];
+    for (let i = 0; i < list.length; i++) if (list[i]?.details?.error === "DeviceNotRegistered") await run(`DELETE FROM push_tokens WHERE token = $1`, [rows[i].token]);
+  } catch {}
+}
+
 // ---------- API ----------
 const API: Record<string, (b: Row) => Promise<Response>> = {
   async register(b) {
@@ -168,7 +184,11 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
   async me(b) { return ok(payload(await authUser(b))); },
   async logout(b) {
     const t = String(b.token ?? "");
-    if (/^[a-f0-9]{64}$/.test(t)) await run(`DELETE FROM tokens WHERE token_hash = $1`, [sha(t)]);
+    if (/^[a-f0-9]{64}$/.test(t)) {
+      const row = await first(`SELECT user_id FROM tokens WHERE token_hash = $1`, [sha(t)]);
+      if (row) await run(`DELETE FROM push_tokens WHERE user_id = $1`, [row.user_id]);
+      await run(`DELETE FROM tokens WHERE token_hash = $1`, [sha(t)]);
+    }
     return ok();
   },
   async profile(b) {
@@ -285,6 +305,20 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
     if ((await count(`SELECT COUNT(*) c FROM messages WHERE user_id = $1 AND sender = 'user' AND created_at > $2`, [u.id, now() - 3600])) >= 20) throw new Fail("too_many", 429);
     await run(`INSERT INTO messages (user_id, sender, body, seen, created_at) VALUES ($1,'user',$2,0,$3)`, [u.id, body, now()]);
     return ok();
+  },
+  async push_register(b) {
+    const u = await authUser(b);
+    const pt = String(b.push_token ?? "");
+    if (!/^Expo(nent)?PushToken\[[\w-]+\]$/.test(pt)) throw new Fail("invalid");
+    await run(`DELETE FROM push_tokens WHERE token = $1`, [pt]);
+    await run(`INSERT INTO push_tokens (token, user_id, updated_at) VALUES ($1,$2,$3)`, [pt, u.id, now()]);
+    return ok();
+  },
+  async support_poll(b) {
+    const u = await authUser(b);
+    const r = await first(`SELECT COUNT(*) c, MAX(id) m FROM messages WHERE user_id = $1 AND sender = 'admin' AND seen = 0`, [u.id]);
+    const last = r && num(r.m) > 0 ? await first(`SELECT body FROM messages WHERE id = $1`, [r.m]) : undefined;
+    return ok({ unread: num(r?.c), last_id: num(r?.m), body: String(last?.body ?? "") });
   },
   async support_list(b) {
     const u = await authUser(b);
@@ -483,6 +517,7 @@ async function adminAct(act: string, f: (k: string) => string): Promise<string> 
       if (!(uid > 0) || !body) return "اكتب الرد";
       await run(`INSERT INTO messages (user_id, sender, body, seen, created_at) VALUES ($1,'admin',$2,0,$3)`, [uid, body, t]);
       await run(`UPDATE messages SET seen = 1 WHERE user_id = $1 AND sender = 'user'`, [uid]);
+      await sendPush(uid);
       return "تم إرسال الرد";
     }
     case "set_save":

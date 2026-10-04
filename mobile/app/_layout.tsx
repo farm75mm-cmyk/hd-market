@@ -17,6 +17,7 @@ import {
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { AppGate } from "@/components/app-gate";
+import { SupportWatcher } from "@/components/support-watcher";
 import { trpc, createTRPCClient } from "@/lib/trpc";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 
@@ -91,6 +92,7 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="oauth/callback" />
             </Stack>
+            <SupportWatcher />
           </AppGate>
           <StatusBar style="auto" />
         </QueryClientProvider>

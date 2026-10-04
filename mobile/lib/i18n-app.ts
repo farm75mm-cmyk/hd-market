@@ -23,7 +23,7 @@ const AR: Dict = {
   qty: "العدد", price: "السعر", buy: "شراء", soldOut: "نفد", confirmBuy: "تأكيد الشراء؟", total: "الإجمالي",
   bought: "تم تقديم الطلب بنجاح.", noProducts: "لا توجد منتجات في هذا القسم.", back: "رجوع",
   new: "جديد", processing: "قيد التنفيذ", done: "مكتمل", cancelled: "ملغي",
-  err: "حدث خطأ", net: "تعذّر الاتصال بالخادم.", insufficient: "رصيدك غير كافٍ. اشحن رصيدك أولًا.", outOfStock: "الكمية غير متوفرة.", pack: "العدد", limit: "الحد المسموح", limitExceeded: "تجاوزت الحد المسموح للطلب الواحد.",
+  err: "حدث خطأ", net: "تعذّر الاتصال بالخادم.", insufficient: "رصيدك غير كافٍ. اشحن رصيدك أولًا.", outOfStock: "الكمية غير متوفرة.", newReply: "رد جديد من الدعم", pack: "العدد", limit: "الحد المسموح", limitExceeded: "تجاوزت الحد المسموح للطلب الواحد.",
   invalid: "تحقق من البيانات المدخلة.", tooMany: "طلبات كثيرة. حاول لاحقًا.", maint: "التطبيق تحت الصيانة حاليًا.",
   needAmount: "أدخل المبلغ واختر المحفظة وصورة الإيصال.", maintTitle: "تحت الصيانة", retry: "إعادة المحاولة",
 };
@@ -36,7 +36,7 @@ const EN: Dict = {
   qty: "Quantity", price: "Price", buy: "Buy", soldOut: "Sold out", confirmBuy: "Confirm purchase?", total: "Total",
   bought: "Order placed successfully.", noProducts: "No products in this section.", back: "Back",
   new: "New", processing: "Processing", done: "Completed", cancelled: "Cancelled",
-  err: "Error", net: "Couldn't reach the server.", insufficient: "Insufficient balance. Top up first.", outOfStock: "Not enough stock.", pack: "Count", limit: "Max per order", limitExceeded: "Over the per-order limit.",
+  err: "Error", net: "Couldn't reach the server.", insufficient: "Insufficient balance. Top up first.", outOfStock: "Not enough stock.", newReply: "New reply from support", pack: "Count", limit: "Max per order", limitExceeded: "Over the per-order limit.",
   invalid: "Please check your input.", tooMany: "Too many requests. Try later.", maint: "The app is under maintenance.",
   needAmount: "Enter an amount, choose a wallet and a receipt image.", maintTitle: "Under maintenance", retry: "Try again",
 };
