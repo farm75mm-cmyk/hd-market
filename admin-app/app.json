@@ -5,7 +5,22 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "android": { "package": "com.hdmarket.admin", "softwareKeyboardLayoutMode": "resize" },
-    "ios": { "bundleIdentifier": "com.hdmarket.admin" }
+    "android": {
+      "package": "com.hdmarket.admin",
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-foreground.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.hdmarket.admin"
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    }
   }
 }
