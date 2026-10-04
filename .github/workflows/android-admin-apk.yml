@@ -1,0 +1,29 @@
+name: Build Admin APK
+on:
+  workflow_dispatch:
+    inputs:
+      token:
+        description: Expo token (optional if EXPO_TOKEN secret is set)
+        required: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-app
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || inputs.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx --yes eas-cli@latest whoami
+      - name: Link EAS project
+        run: npx --yes eas-cli@latest init --non-interactive --force
+      - name: Build APK on EAS
+        run: npx --yes eas-cli@latest build --platform android --profile preview --non-interactive --wait --json > build.json 2> build.err || { echo "::error::$(sed 's/\x1b\[[0-9;]*m//g' build.err | tail -15 | tr '\n' ' ')"; exit 1; }
+      - name: Show download link
+        run: |
+          echo "::notice::APK_URL=$(node -e "const b=JSON.parse(require('fs').readFileSync('build.json','utf8'));console.log((Array.isArray(b)?b[0]:b).artifacts?.buildUrl||'')")"
