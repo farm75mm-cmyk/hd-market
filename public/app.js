@@ -12,10 +12,14 @@ const LS = {
 const S = {
   token: LS.get("token", ""), user: LS.get("user", null), lang: LS.get("lang", "ar"), theme: LS.get("theme", "light"),
   cur: LS.get("cur", "JOD"), tone: LS.get("tone", "soft_bell"), cart: LS.get("cart", {}), opt: LS.get("optcart", {}),
-  cfg: null, home: null, catalog: null, optItems: null, unread: 0, lastNotif: LS.get("lastnotif", 0),
+  notif: LS.get("notif", true), lastSup: LS.get("lastsup", 0), supUnread: 0, ntab: "alerts", cfg: null, home: null, catalog: null, optItems: null, unread: 0, lastNotif: LS.get("lastnotif", 0),
 };
+const APP_VER = "4.0.0";
+const LANGS = { ar: "العربية", en: "English", vi: "Tiếng Việt", zh: "中文" };
+const LOC = { ar: "ar-JO-u-nu-latn", en: "en-GB", vi: "vi-VN", zh: "zh-CN" };
 const ar = () => S.lang === "ar";
-const T = (a, e) => (ar() ? a : e);
+const T = (a, e) => (S.lang === "ar" ? a : S.lang === "vi" ? VI[e] || e : S.lang === "zh" ? ZH[e] || e : e);
+const cmpVer = (a, b) => { const x = String(a || "0").split(".").map(Number), y = String(b || "0").split(".").map(Number); for (let i = 0; i < 4; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0 ? 1 : -1; } return 0; };
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const shell = (m) => { try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch {} };
@@ -41,11 +45,11 @@ const amt = (v, c) => `${num(v, c)} ${c}`;
 const bal = (c) => Number(S.user?.balances?.[c] || 0);
 
 /* ---------- time ---------- */
-const fmtD = (ts) => new Date(ts * 1000).toLocaleString(ar() ? "ar-JO-u-nu-latn" : "en-GB", { timeZone: "Asia/Amman", dateStyle: "medium", timeStyle: "short" });
+const fmtD = (ts) => new Date(ts * 1000).toLocaleString(LOC[S.lang], { timeZone: "Asia/Amman", dateStyle: "medium", timeStyle: "short" });
 function tick() {
   const d = new Date(), el = $("#clk");
   if (!el) return;
-  const o = { timeZone: "Asia/Amman" }, loc = ar() ? "ar-JO-u-nu-latn" : "en-GB";
+  const o = { timeZone: "Asia/Amman" }, loc = LOC[S.lang];
   el.innerHTML = `<b>${d.toLocaleTimeString(loc, { ...o, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</b>${d.toLocaleDateString(loc, { ...o, weekday: "short", day: "numeric", month: "short", year: "numeric" })}`;
 }
 setInterval(tick, 1000);
@@ -129,7 +133,7 @@ function frame() {
     <a href="#/" class="${navOn("/")}">${ic("home")}${T("الرئيسية", "Home")}</a>
     <a href="#/wallet" class="${navOn("/wallet") || navOn("/topup") || navOn("/history")}">${ic("wallet")}${T("المحفظة", "Wallet")}</a>
     <a href="#/orders" class="${navOn("/orders")}">${ic("bag")}${T("طلباتي", "Orders")}</a>
-    <a href="#/support" class="${navOn("/support")}">${ic("chat")}${T("الدعم", "Support")}</a>
+    <a href="#/support" class="${navOn("/support")}">${ic("chat")}${T("الدعم", "Support")}<span class="badge" id="supb" ${S.supUnread ? "" : "hidden"}>${S.supUnread}</span></a>
     <a href="#/account" class="${navOn("/account")}">${ic("user")}${T("حسابي", "Account")}</a>
   </nav>`;
   tick(); drawTicker();
@@ -150,7 +154,7 @@ function maint(msg) {
 function setSession(token, user) {
   S.token = token || S.token; if (user) S.user = user;
   LS.set("token", S.token); LS.set("user", S.user);
-  shell({ type: "login", token: S.token, tone: S.tone });
+  if (S.notif) shell({ type: "login", token: S.token, tone: S.tone });
 }
 function logout(expired) {
   if (S.token && !expired) api("logout", { token: S.token }, false).catch(() => {});
@@ -171,7 +175,7 @@ const on = (re, fn) => R.push([re, fn]);
 let seq = 0;
 async function route() {
   const h = location.hash.slice(1) || "/"; const my = ++seq;
-  stopPolls();
+  stopPolls(); closeSheet();
   frame();
   const protectedRe = /^\/(wallet|topup|history|tx|orders|support|account|notifs|cart|checkout)/;
   if (protectedRe.test(h) && !S.token) { go("/login"); return; }
@@ -470,9 +474,15 @@ on(/^\/tx\/([\w-]+)$/, async (id) => {
 
 /* ---------- notifications ---------- */
 on(/^\/notifs$/, async () => {
-  const r = await api("notifications");
-  view(`<div class="page"><div class="h2" style="margin-top:4px">${T("التنبيهات", "Notifications")}<button class="lnk" data-a="readall">${T("تعليم الكل كمقروء", "Mark all read")}</button></div><div class="stack">${r.items.map((n) => `<div class="card" data-a="notif" data-id="${n.id}" data-ref="${esc(n.ref || "")}" style="cursor:pointer;${n.is_read ? "opacity:.7" : "border-color:var(--gold)"}"><b>${esc(ar() ? n.title : n.title_en || n.title)}</b><div>${esc(ar() ? n.body : n.body_en || n.body)}</div><div class="mut" style="margin-top:4px">${fmtD(n.created_at)}</div></div>`).join("") || `<div class="empty">${T("لا تنبيهات", "No notifications")}</div>`}</div></div>`);
-  S.unread = 0; setBadge();
+  const [r, an] = await Promise.all([api("notifications"), api("announcements", {}, false)]);
+  const draw = () => {
+    const alerts = r.items.map((n) => `<div class="card" data-a="notif" data-id="${n.id}" data-ref="${esc(n.ref || "")}" style="cursor:pointer;${n.is_read ? "opacity:.7" : "border-color:var(--gold)"}"><b>${esc(ar() ? n.title : n.title_en || n.title)}</b><div>${esc(ar() ? n.body : n.body_en || n.body)}</div><div class="mut" style="margin-top:4px">${fmtD(n.created_at)}</div></div>`).join("") || `<div class="empty">${T("لا تنبيهات", "No notifications")}</div>`;
+    const ann = an.items.map(annCard).join("") || `<div class="empty">${T("لا إعلانات", "No announcements")}</div>`;
+    view(`<div class="page"><div class="seg" style="margin:4px 0 10px"><button class="${S.ntab === "alerts" ? "on" : ""}" data-a="ntab" data-v="alerts">${T("التنبيهات", "Alerts")}</button><button class="${S.ntab === "ann" ? "on" : ""}" data-a="ntab" data-v="ann">${T("الإعلانات", "Announcements")}</button></div>
+      ${S.ntab === "alerts" ? `<div class="row" style="justify-content:flex-end"><button class="lnk" data-a="readall">${T("تعليم الكل كمقروء", "Mark all read")}</button></div>` : ""}<div class="stack">${S.ntab === "alerts" ? alerts : ann}</div></div>`);
+  };
+  S.draw = draw; draw();
+  api("notif_read", { all: 1 }).catch(() => {}); S.unread = 0; setBadge();
 });
 function setBadge() { const b = $("#bdg"); if (b) { b.hidden = !S.unread; b.textContent = S.unread > 99 ? "99+" : S.unread; } }
 async function notifPoll() {
@@ -480,8 +490,13 @@ async function notifPoll() {
   try {
     const r = await api("notif_poll"); S.unread = r.unread; setBadge();
     if (r.last_id && r.last_id > S.lastNotif) {
-      if (S.lastNotif) { toast((ar() ? r.title : r.title_en || r.title), ""); playTone(S.tone); }
+      if (S.lastNotif && S.notif) { toast(ar() ? r.title : r.title_en || r.title, ""); playTone(S.tone); }
       S.lastNotif = r.last_id; LS.set("lastnotif", r.last_id);
+    }
+    const q = await api("support_poll"); S.supUnread = q.unread; const sb = $("#supb"); if (sb) { sb.hidden = !q.unread; sb.textContent = q.unread; }
+    if (q.last_id && q.last_id > S.lastSup) {
+      if (S.lastSup && S.notif && !location.hash.startsWith("#/support")) { toast(`${T("رد جديد من الدعم", "New reply from support")}: ${q.body}`.slice(0, 120), ""); playTone(S.tone); }
+      S.lastSup = q.last_id; LS.set("lastsup", q.last_id);
     }
   } catch {}
 }
@@ -502,27 +517,62 @@ on(/^\/support$/, async () => {
   poll(() => load().catch(() => {}), 4000);
 });
 
-/* ---------- account ---------- */
+/* ---------- account / settings ---------- */
+const toneNames = { soft_bell: ["جرس ناعم", "Soft bell"], bell: ["جرس", "Bell"], marimba: ["ماريمبا", "Marimba"], harp: ["هارب", "Harp"], bubble: ["فقاعة", "Bubble"], digital: ["رقمي", "Digital"], loud: ["عالٍ", "Loud"], calm: ["هادئ", "Calm"], ding: ["دينغ", "Ding"], silent: ["صامت", "Silent"] };
+const toneName = (t) => T(...toneNames[t]);
+const tonesHtml = () => TONES.map((t) => `<div class="row" style="padding:6px 0"><label class="sp" style="margin:0;cursor:pointer"><input type="radio" name="tn" ${S.tone === t ? "checked" : ""} data-a="tone" data-v="${t}"> ${esc(toneName(t))}</label><button class="btn sm ln" data-a="prev" data-v="${t}">▶</button></div>`).join("");
+const setRow = (icon, label, val, attrs, extra = "") => `<div class="srow" ${attrs}><span class="si">${ic(icon)}</span><span class="sp">${label}${val ? `<small>${val}</small>` : ""}</span>${extra}</div>`;
+const notifRow = () => setRow("bell", T("الإشعارات", "Notifications"), S.notif ? T("مفعّلة", "On") : T("متوقفة — لن تصلك أي إشعارات", "Notifications are off"), 'data-a="notiftoggle"', `<span class="sw ${S.notif ? "on" : ""}"></span>`);
 on(/^\/account$/, async () => {
   await refreshMe(); const u = S.user;
+  const chev = `<span class="chev">›</span>`;
   view(`<div class="page stack"><div class="card stack" style="text-align:center"><div style="width:84px;height:84px;border-radius:50%;margin:auto;overflow:hidden;background:var(--field);display:grid;place-items:center">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:100%;height:100%;object-fit:cover" alt="">` : ic("user")}</div>
     <b style="font-size:18px">${esc(u.username)}</b><div class="mut">${esc(u.email)}</div><input type="file" id="av" accept="image/*" hidden>
-    <div class="row" style="justify-content:center"><button class="btn sm dk" data-a="avatar">${T("تغيير الصورة", "Change photo")}</button>${u.avatar ? `<button class="btn sm ln" data-a="avatarrm">${T("حذف", "Remove")}</button>` : ""}</div></div>
-    <div class="card stack"><div class="fld"><label>${T("اسم المستخدم", "Username")}</label><input id="nm" value="${esc(u.username)}"></div><button class="btn sm dk" data-a="rename">${T("حفظ الاسم", "Save name")}</button><div id="e"></div></div>
-    <div class="card stack"><div class="fld"><label>${T("اللغة", "Language")}</label><div class="seg"><button class="${ar() ? "on" : ""}" data-a="setlang" data-v="ar">العربية</button><button class="${!ar() ? "on" : ""}" data-a="setlang" data-v="en">English</button></div></div>
-      <div class="fld"><label>${T("المظهر", "Theme")}</label><div class="seg"><button class="${S.theme === "light" ? "on" : ""}" data-a="settheme" data-v="light">${T("فاتح", "Light")}</button><button class="${S.theme === "dark" ? "on" : ""}" data-a="settheme" data-v="dark">${T("داكن", "Dark")}</button></div></div>
-      <div class="fld"><label>${T("نغمة التنبيه", "Notification tone")}</label><div id="tones">${tonesHtml()}</div></div></div>
-    <button class="btn rd" data-a="logout">${T("تسجيل الخروج", "Sign out")}</button></div>`);
+    <div class="row" style="justify-content:center"><button class="btn sm dk" data-a="avatar">${T("تغيير الصورة", "Change photo")}</button>${u.avatar ? `<button class="btn sm ln" data-a="avatarrm">${T("حذف", "Remove")}</button>` : ""}</div>
+    <div class="row"><input class="in sp" id="nm" value="${esc(u.username)}"><button class="btn sm dk" data-a="rename">${T("حفظ الاسم", "Save name")}</button></div><div id="e"></div></div>
+    <div class="h2" style="margin:6px 2px 0">${T("الإعدادات", "Settings")}</div>
+    <div class="card sets">
+      ${setRow("globe", T("اللغة", "Language"), LANGS[S.lang], 'data-a="langsheet"', chev)}
+      <div class="srow" style="cursor:default"><span class="si">${ic("home")}</span><span class="sp">${T("المظهر", "Theme")}</span><div class="seg" style="min-width:150px"><button class="${S.theme === "light" ? "on" : ""}" data-a="settheme" data-v="light">${T("فاتح", "Light")}</button><button class="${S.theme === "dark" ? "on" : ""}" data-a="settheme" data-v="dark">${T("داكن", "Dark")}</button></div></div>
+      <div id="nrow">${notifRow()}</div>
+      <div id="trow" style="${S.notif ? "" : "opacity:.45"}">${setRow("bell", T("نغمة الإشعارات", "Notification tone"), toneName(S.tone), 'data-a="tonesheet"', chev)}</div>
+      ${setRow("chat", T("الدعم", "Support"), "", 'data-a="nav" data-v="/support"', (S.supUnread ? `<span class="st r">${S.supUnread}</span>` : "") + chev)}
+      ${setRow("bell", T("التنبيهات", "Alerts"), T("التنبيهات والإعلانات المهمة", "Alerts & announcements"), 'data-a="nav" data-v="/notifs"', (S.unread ? `<span class="st r">${S.unread}</span>` : "") + chev)}
+      ${setRow("farm", T("مشترياتي (المزارع)", "My purchases (farms)"), "", 'data-a="nav" data-v="/my-farms"', chev)}
+      ${setRow("bag", T("طلبات المنتجات والأدوات", "Product & tool orders"), "", 'data-a="nav" data-v="/my-orders"', chev)}
+      ${setRow("link", T("البحث عن تحديث", "Check for update"), `${T("الإصدار", "Version")} ${APP_VER}`, 'data-a="chkupd"', chev)}
+    </div>
+    <button class="btn rd" style="margin-top:6px" data-a="logoutask">${T("تسجيل الخروج", "Sign out")}</button></div>`);
 });
-const toneNames = { soft_bell: ["جرس ناعم", "Soft bell"], bell: ["جرس", "Bell"], marimba: ["ماريمبا", "Marimba"], harp: ["هارب", "Harp"], bubble: ["فقاعة", "Bubble"], digital: ["رقمي", "Digital"], loud: ["عالٍ", "Loud"], calm: ["هادئ", "Calm"], ding: ["دينغ", "Ding"], silent: ["صامت", "Silent"] };
-const tonesHtml = () => TONES.map((t) => `<div class="row" style="padding:6px 0"><label class="sp" style="margin:0;cursor:pointer"><input type="radio" name="tn" ${S.tone === t ? "checked" : ""} data-a="tone" data-v="${t}"> ${esc(T(...toneNames[t]))}</label><button class="btn sm ln" data-a="prev" data-v="${t}">▶</button></div>`).join("");
-
+on(/^\/my-farms$/, async () => {
+  const draw = async () => { const r = await api("orders"); const f = r.orders.filter((o) => o.kind === "farm"); const v = $("#mf"); if (!v) return;
+    v.innerHTML = f.map((o) => `<div class="card stack"><div class="row"><b class="sp">${esc(o.name)}</b>${stBadge(o.status)}</div>
+      <div class="row mut"><span class="sp">${T("تاريخ الشراء", "Purchase date")}</span><span>${fmtD(o.created_at)}</span></div>
+      <div class="row mut"><span class="sp">${T("السعر", "Price")}</span><b style="color:var(--ink)">${amt(o.total, o.currency)}</b></div><div class="mut">#${o.id}</div>
+      ${o.delivery ? `<div class="mut">${T("بيانات المزرعة", "Farm credentials")}</div><div class="code">${esc(o.delivery)}</div><button class="btn sm dk" data-a="copy" data-v="${esc(o.delivery)}">${ic("copy")} ${T("نسخ", "Copy")}</button>` : o.status === "cancelled" ? "" : `<div class="mut">${T("بانتظار تسليم الإدارة", "Waiting for admin delivery")}</div>`}</div>`).join("") || `<div class="empty">${T("لا مشتريات بعد", "No farm purchases yet")}</div>`; };
+  view(`<div class="page">${back("/account")}<div class="h2" style="margin-top:4px">${T("مشترياتي (المزارع)", "My purchases (farms)")}</div><div class="stack" id="mf"></div></div>`);
+  poll(() => draw().catch(() => {}), 10000);
+});
+on(/^\/my-orders$/, async () => {
+  const draw = async () => { const r = await api("orders"); const f = r.orders.filter((o) => o.kind === "tool" || o.kind === "opt"); const v = $("#mo"); if (v) v.innerHTML = f.map(orderCard).join("") || `<div class="empty">${T("لا طلبات بعد", "No product orders yet")}</div>`; };
+  view(`<div class="page">${back("/account")}<div class="h2" style="margin-top:4px">${T("طلبات المنتجات والأدوات", "Product & tool orders")}</div><div class="stack" id="mo"></div></div>`);
+  poll(() => draw().catch(() => {}), 10000);
+});
+async function checkUpdate() {
+  toast(T("جارٍ البحث عن تحديث…", "Checking…"));
+  try {
+    const r = await api("config", {}, false); S.cfg = r; const u = r.update || {};
+    if (u.version && cmpVer(u.version, APP_VER) > 0) {
+      sheet(`<h3>${T("يتوفر إصدار جديد", "New version available")} ${esc(u.version)}</h3>${u.notes ? `<p style="white-space:pre-wrap;margin-bottom:12px">${esc(u.notes)}</p>` : ""}${u.url ? `<a class="btn" href="${esc(u.url)}" target="_blank" rel="noopener" onclick="closeSheet()">${T("تحديث التطبيق", "Update now")}</a>` : ""}<button class="btn ln" style="margin-top:8px" onclick="closeSheet()">${T("إلغاء", "Cancel")}</button>`);
+    } else toast(T("أنت على أحدث إصدار", "You are on the latest version"), "s");
+  } catch (e) { toast(errMsg(e), "e"); }
+}
 /* ---------- actions ---------- */
 document.addEventListener("click", async (ev) => {
   const el = ev.target.closest("[data-a]"); if (!el) return;
   const a = el.dataset.a, id = el.dataset.id, v = el.dataset.v;
   if (el.tagName === "INPUT" && el.type !== "radio") return;
-  if (a === "lang" || a === "setlang") { S.lang = a === "setlang" ? v : ar() ? "en" : "ar"; LS.set("lang", S.lang); applyPrefs(); route(); }
+  if (a === "setlang") { S.lang = v; LS.set("lang", S.lang); applyPrefs(); closeSheet(); route(); }
   else if (a === "settheme") { S.theme = v; LS.set("theme", v); applyPrefs(); route(); }
   else if (a === "cur") { S.cur = v; LS.set("cur", v); route(); }
   else if (a === "acct") go("/account");
@@ -563,12 +613,26 @@ document.addEventListener("click", async (ev) => {
   }
   else if (a === "readall") { await api("notif_read", { all: 1 }).catch(() => {}); route(); }
   else if (a === "notif") { api("notif_read", { id }).catch(() => {}); const ref = el.dataset.ref || ""; if (ref.startsWith("DEP-")) go("/tx/" + ref); else if (ref.startsWith("ORD-")) go("/orders"); else el.style.opacity = ".7"; }
-  else if (a === "tone") { S.tone = v; LS.set("tone", v); playTone(v); shell({ type: "tone", tone: v, token: S.token }); }
+  else if (a === "tone") { S.tone = v; LS.set("tone", v); playTone(v); if (S.notif) shell({ type: "tone", tone: v, token: S.token }); const tr = $("#trow"); if (tr) tr.innerHTML = setRow("bell", T("نغمة الإشعارات", "Notification tone"), toneName(v), 'data-a="tonesheet"', `<span class="chev">›</span>`); }
   else if (a === "prev") playTone(v);
   else if (a === "avatar") $("#av").click();
   else if (a === "avatarrm") { try { const r = await api("profile", { avatar: null }); S.user = { ...S.user, ...r }; LS.set("user", S.user); route(); } catch (e) { toast(errMsg(e), "e"); } }
   else if (a === "rename") { try { const r = await api("profile", { username: $("#nm").value }); S.user = { ...S.user, ...r }; LS.set("user", S.user); toast(T("تم الحفظ", "Saved"), "s"); } catch (e) { $("#e").innerHTML = `<div class="err">${esc(errMsg(e))}${e.days ? ` (${e.days} ${T("يوم", "days")})` : ""}</div>`; } }
-  else if (a === "logout") { if (confirm(T("تسجيل الخروج؟", "Sign out?"))) logout(); }
+  else if (a === "nav") go(v);
+  else if (a === "ntab") { S.ntab = v; S.draw && S.draw(); }
+  else if (a === "langsheet" || a === "lang") {
+    sheet(`<h3>${T("اللغة", "Choose language")}</h3>${Object.entries(LANGS).map(([k, n]) => `<button class="btn ${k === S.lang ? "" : "ln"}" style="margin-bottom:8px" data-a="setlang" data-v="${k}">${n}</button>`).join("")}`);
+  }
+  else if (a === "tonesheet") { if (!S.notif) return; sheet(`<h3>${T("نغمة الإشعارات", "Notification tone")}</h3><div>${tonesHtml()}</div><button class="btn" style="margin-top:10px" onclick="closeSheet()">${T("حفظ", "Save")}</button>`); }
+  else if (a === "notiftoggle") {
+    S.notif = !S.notif; LS.set("notif", S.notif);
+    $("#nrow").innerHTML = notifRow(); $("#trow").style.opacity = S.notif ? "" : ".45";
+    if (S.notif) { shell({ type: "login", token: S.token, tone: S.tone }); toast(T("تم تفعيل الإشعارات", "Notifications on"), "s"); }
+    else { api("push_unregister").catch(() => {}); toast(T("تم إيقاف الإشعارات", "Notifications are off")); }
+  }
+  else if (a === "chkupd") checkUpdate();
+  else if (a === "logoutask") sheet(`<h3>${T("تسجيل الخروج", "Sign out")}</h3><p style="margin-bottom:14px">${T("هل أنت متأكد أنك تريد تسجيل الخروج؟", "Are you sure you want to sign out?")}</p><button class="btn rd" data-a="logoutyes">${T("نعم، تسجيل الخروج", "Yes, sign out")}</button><button class="btn ln" style="margin-top:8px" onclick="closeSheet()">${T("إلغاء", "Cancel")}</button>`);
+  else if (a === "logoutyes") { closeSheet(); logout(); }
 });
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
@@ -584,5 +648,10 @@ window.addEventListener("offline", () => { const o = $("#off"); o.textContent = 
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { notifPoll(); } });
 window.addEventListener("message", () => {});
 applyPrefs();
-if (S.token) shell({ type: "login", token: S.token, tone: S.tone });
-(async () => { try { await loadCfg(); } catch {} route(); notifPoll(); })();
+if (S.token && S.notif) shell({ type: "login", token: S.token, tone: S.tone });
+(async () => {
+  try { await loadCfg(); } catch {}
+  const u = S.cfg?.update;
+  if (u && u.force && u.url && cmpVer(u.version, APP_VER) > 0) { $("#app").innerHTML = `<div class="full"><div><img src="/img/logo-192.png" width="90" style="border-radius:22px"><h2 style="margin:14px 0 6px">${T("يتوفر إصدار جديد", "New version available")} ${esc(u.version)}</h2><p class="mut" style="white-space:pre-wrap">${esc(u.notes || "")}</p><a class="btn" style="margin-top:16px" href="${esc(u.url)}" target="_blank" rel="noopener">${T("تحديث التطبيق", "Update now")}</a></div></div>`; return; }
+  route(); notifPoll();
+})();

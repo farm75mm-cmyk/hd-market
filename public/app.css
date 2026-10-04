@@ -126,3 +126,17 @@ input[type=radio]{width:auto!important;margin-inline-end:6px}
 .tick{background:var(--gold);color:#111;overflow:hidden;white-space:nowrap;direction:ltr;font-weight:800;font-size:14px;padding:6px 0;max-width:520px;margin:auto}
 .tick span{display:inline-block;padding-inline-start:100%;animation:mq 20s linear infinite;unicode-bidi:plaintext}
 @keyframes mq{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+.sets{padding:0;overflow:hidden}
+.srow{display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer;border-bottom:1px solid var(--line)}
+.sets>*:last-child .srow,.sets>.srow:last-child{border-bottom:0}
+.srow small{display:block;color:var(--mute);font-size:12px;font-weight:600}
+.srow .si{width:34px;height:34px;border-radius:10px;background:var(--field);display:grid;place-items:center;flex:none}
+.srow .si svg{width:19px;height:19px}
+.srow .sp{font-weight:800}
+.chev{color:var(--mute);font-size:22px;line-height:1}
+[dir=rtl] .chev{transform:scaleX(-1)}
+.sw{width:46px;height:26px;border-radius:99px;background:var(--line);position:relative;flex:none;transition:.2s}
+.sw::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
+.sw.on{background:var(--ok)}
+.sw.on::after{inset-inline-start:23px}
+.nav a .badge{top:2px;inset-inline-end:calc(50% - 22px)}

@@ -257,6 +257,11 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     await run(`INSERT INTO push_tokens (token, user_id, updated_at, tone) VALUES ($1,$2,$3,$4)`, [pt, u.id, now(), tone]);
     return ok();
   },
+  async push_unregister(b) {
+    const u = await authUser(b);
+    await run(`DELETE FROM push_tokens WHERE user_id = $1`, [u.id]);
+    return ok();
+  },
   async support_poll(b) {
     const u = await authUser(b);
     const r = await first(`SELECT COUNT(*) c, MAX(id) m FROM messages WHERE user_id = $1 AND sender = 'admin' AND seen = 0`, [u.id]);
