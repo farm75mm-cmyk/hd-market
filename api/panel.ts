@@ -32,11 +32,10 @@ const loginForm = (lang: "ar" | "en", err: string) => {
 
 export async function admin(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  let lang: "ar" | "en" = cookieOf(req, "hdlang") === "en" ? "en" : "ar";
+  const lang: "ar" | "en" = "ar";
   const t = mkT(lang);
   if (!SECRET || !ADMIN_USER || ADMIN_PASSWORD.length < 8) return page(lang, "Admin", `<div class="login"><h2>لوحة التحكم غير مفعّلة</h2><p>اضبط المتغيرات <code>APP_SECRET</code> و<code>ADMIN_USER</code> و<code>ADMIN_PASSWORD</code> (8 أحرف على الأقل) في Railway.</p></div>`);
   const ql = url.searchParams.get("lang");
-  if (ql === "ar" || ql === "en") { url.searchParams.delete("lang"); return redirect(url.pathname + url.search, [smallCookie("hdlang", ql, 31536000, false)]); }
   const post = req.method === "POST";
   const form = post ? await req.formData() : new FormData();
   const f = (k: string) => String(form.get(k) ?? "");

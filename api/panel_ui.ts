@@ -117,7 +117,6 @@ export function layout(ctx: Ctx, title: string, body: string, badges: Record<str
 <aside id="dr"><a class="dh" href="/admin" style="text-decoration:none;color:inherit"><img src="${WEB_ORIGIN}/img/logo-192.png" alt=""><div><b>HD Market</b><small>${h(t("لوحة الإدارة"))}</small></div></a>
 <a class="ni${tab === "home" ? " on" : ""}" href="/admin" style="margin-top:8px">${tile(4, "chart", 52)}<span>${h(t("الرئيسية"))}</span></a>${nav}</aside>
 <header class="top"><button class="sq mb" type="button" aria-label="menu" onclick="document.body.classList.add('open')">${ic("menu", 24)}</button><div class="ttl">${h(title)}</div>
-<a class="sq" href="/admin?lang=${other}" aria-label="language">${ic("globe", 22)}${lang === "ar" ? FLAG_UK : FLAG_AR}</a>
 <form method="post" action="/admin"><input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="do" value="logout"><button class="sq" aria-label="logout">${ic("out", 22)}</button></form></header>
 <div class="wrap">BODY</div>${extraJs}`.replace("BODY", () => body);
 }

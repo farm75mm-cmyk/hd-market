@@ -94,7 +94,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     notifoff: ["تم إيقاف الإشعارات", "Notifications turned off", "Đã tắt thông báo", "通知已关闭"], notifon: ["تم تفعيل الإشعارات", "Notifications turned on", "Đã bật thông báo", "通知已开启"],
     latest: ["أنت على أحدث إصدار", "You are on the latest version", "Bạn đang dùng phiên bản mới nhất", "已是最新版本"], newver: ["يتوفر إصدار جديد", "New version available", "Có phiên bản mới", "发现新版本"], updnow: ["تحديث التطبيق", "Update now", "Cập nhật ngay", "立即更新"],
     checking: ["جارٍ البحث عن تحديث…", "Checking…", "Đang kiểm tra…", "检查中…"], nopurch: ["لا مشتريات بعد.", "No farm purchases yet.", "Chưa mua nông trại nào.", "还没有购买农场。"],
-    noprodorders: ["لا طلبات بعد.", "No product orders yet.", "Chưa có đơn sản phẩm.", "还没有商品订单。"], nonotif: ["لا تنبيهات.", "No notifications.", "Không có thông báo.", "暂无通知。"],
+    nofarms: ["لا مشتريات بعد.", "No purchases yet.", "Chưa có giao dịch mua.", "暂无购买。"], noalerts: ["لا توجد تنبيهات.", "No alerts.", "Không có cảnh báo.", "暂无提醒。"], noprodorders: ["لا طلبات بعد.", "No product orders yet.", "Chưa có đơn sản phẩm.", "还没有商品订单。"], nonotif: ["لا تنبيهات.", "No notifications.", "Không có thông báo.", "暂无通知。"],
     anns: ["الإعلانات", "Announcements", "Thông báo chung", "公告"], pdate: ["تاريخ الشراء", "Purchase date", "Ngày mua", "购买日期"], odate: ["تاريخ الطلب", "Order date", "Ngày đặt", "下单日期"],
     cdata: ["بيانات المزرعة", "Farm credentials", "Thông tin nông trại", "农场凭据"], newreply: ["رد جديد من الدعم", "New reply from support", "Có phản hồi mới từ hỗ trợ", "客服有新回复"],
     readall: ["تعليم الكل كمقروء", "Mark all read", "Đánh dấu đã đọc", "全部标为已读"], status: ["الحالة", "Status", "Trạng thái", "状态"], method: ["الطريقة", "Method", "Phương thức", "方式"],
@@ -299,7 +299,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const el = $("xw");
     if (!el) return;
     const ms = (HD.cfg && HD.cfg.methods) || [];
-    el.innerHTML = ms.length ? ms.map((w) => `<div class="xw ${HD.sel == w.id ? "on" : ""}" data-x="sel:${w.id}">${w.icon ? `<img src="${E(w.icon)}" alt="">` : `<div class="xph"></div>`}<div class="xwi"><b>${E(w.name)} · ${E(w.currency)}</b>${w.info ? `<small>${xt("paynum")}: <bdi dir="ltr">${E(w.info)}</bdi></small>` : ""}${w.instructions ? `<small>${E(w.instructions)}</small>` : ""}</div>${w.info ? `<button class="xbtn" data-x="copym:${w.id}">${xt("copy")}</button>` : ""}</div>`).join("") : `<p class="empty">${xt("nowal")}</p>`;
+    el.innerHTML = ms.length ? ms.map((w) => `<div class="xw ${HD.sel == w.id ? "on" : ""}" data-x="sel:${w.id}">${w.icon ? `<img src="${E(w.icon)}" alt="">` : `<div class="xph"></div>`}<div class="xwi"><b>${E(w.name)}</b>${w.info ? `<small>${xt("paynum")}: <bdi dir="ltr">${E(w.info)}</bdi></small>` : ""}${w.instructions ? `<small>${E(w.instructions)}</small>` : ""}</div>${w.info ? `<button class="xbtn" data-x="copym:${w.id}">${xt("copy")}</button>` : ""}</div>`).join("") : `<p class="empty">${xt("nowal")}</p>`;
     const m = ms.find((x) => x.id == HD.sel), a = $("xamt");
     if (a) a.placeholder = m ? `${xt("amount")} (${m.currency})${m.min_amount ? " · min " + m.min_amount : ""}${m.max_amount ? " · max " + m.max_amount : ""}` : xt("amount");
   }
@@ -400,15 +400,37 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   const row = (icon, label, val, x, extra) => `<button class="sr" data-x="${x}"><span class="si">${icon}</span><span class="sl">${label}</span>${extra || `<span class="sv">${val ? E(val) : ""}${chvR}</span>`}</button>`;
   const subHead = (title, back) => `<div class="oh"><button class="bk" data-x="back:${back}" aria-label="back"></button><h2>${title}</h2></div>`;
   function drawSettings() {
-    $("view").innerHTML = subHead(xt("settings"), "acct") + `<div class="sh2">${xt("settings")}</div>
-      <div class="sg">${row(IK.globe, xt("lang"), T[L].n, "langsheet")}
+    const chips = LI.map((k) => `<button class="xchip ${k == L ? "on" : ""}" data-x="setl:${k}" style="border:0;cursor:pointer;font-family:inherit;padding:8px 14px;font-size:14px;${k == L ? "background:#111;color:#fff" : ""}">${T[k].n}</button>`).join("");
+    const tones = TONES.map((t) => `<div class="xtn"><label style="flex:1;cursor:pointer"><input type="radio" name="tn" value="${t}" ${HD.tone == t ? "checked" : ""}> ${E(toneName(t))}</label><button class="xbtn" data-x="prev:${t}">▶</button></div>`).join("");
+    $("view").innerHTML = subHead(xt("settings"), "acct") +
+      `<div class="sg"><div class="sr" style="cursor:default"><span class="si">${IK.globe}</span><span class="sl">${xt("lang")}</span></div><div style="display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 16px">${chips}</div>
       <button class="sr" data-x="notiftoggle"><span class="si">${IK.bell}</span><span class="sl">${xt("notifs")}</span><span class="sw ${HD.notif ? "on" : ""}" id="nsw"></span></button>
-      <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
-      <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
-      ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
-      ${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      <div id="trow" style="${HD.notif ? "" : "opacity:.45;pointer-events:none"}"><div class="sr" style="cursor:default"><span class="si">${IK.music}</span><span class="sl">${xt("tone")}</span></div><div style="padding:0 16px 12px">${tones}</div></div></div>
+      <div class="sh2">${xt("support")}</div>
+      <div class="sg" style="padding:14px"><div class="xchat" id="xlist" style="max-height:300px"></div><div class="xr" style="flex-wrap:nowrap"><input class="xin" id="xmsg" maxlength="1000" placeholder="${xt("typemsg")}" autocomplete="off" style="margin:0"><button class="xbtn" data-x="send" style="margin-inline-start:8px">${Z("إرسال","Send","Gửi","发送")}</button></div></div>
+      <div class="sh2">${xt("alerts")}</div><div class="sg" style="padding:14px" id="xal"></div>
+      <div class="sh2">${xt("purchases")}</div><div class="sg" style="padding:14px" id="xfa"></div>
+      <div class="sh2">${xt("myorders")}</div><div class="sg" style="padding:14px" id="xor"></div>
       <div class="sg">${row(IK.dl, xt("chkupd"), `${xt("appver")} ${APP_VER}`, "chkupd")}</div>
       <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
+    paintChat(true); loadChat(true); fillSettings();
+  }
+  async function fillSettings() {
+    const [r, a, o] = await Promise.all([call("notifications", {}), api("announcements", {}), call("orders", {})]);
+    if (HD.page != "settings") return;
+    const al = $("xal"), fa = $("xfa"), orr = $("xor");
+    if (al && r.ok) {
+      const items = r.items.map((n) => `<div class="xc" style="${n.is_read ? "opacity:.7" : "border-color:#E8A900"}"><b>${E(L == "ar" ? n.title : n.title_en || n.title)}</b><div>${E(L == "ar" ? n.body : n.body_en || n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("");
+      const anns = a.ok && a.items.length ? a.items.map((n) => `<div class="xc"><b>${n.pinned ? "📌 " : ""}${E(n.title)}</b><div style="white-space:pre-wrap">${E(n.body)}</div></div>`).join("") : "";
+      al.innerHTML = (items + anns) || `<p class="empty">${xt("noalerts") || ""}</p>`;
+      call("notif_read", { all: 1 }); HD.unread = 0; drawBadges();
+    }
+    if (o.ok) {
+      HD.orders = o.orders;
+      const f = o.orders.filter((x) => x.kind == "farm"), t = o.orders.filter((x) => x.kind == "tool" || x.kind == "opt");
+      if (fa) fa.innerHTML = f.length ? f.map((x) => `<div class="xc"><div class="xr sp"><b>${E(x.name)}</b>${stChip(x.status)}</div><small>${xt("pdate")}: ${fdate(x.created_at)}</small><small>${xt("price")}: ${amt(x.total, x.currency)} · #${x.id}</small>${x.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(x.delivery)}</div>` : ""}</div>`).join("") : `<p class="empty">${xt("nofarms")}</p>`;
+      if (orr) orr.innerHTML = t.length ? t.map(ordCard).join("") : `<p class="empty">${xt("noprodorders")}</p>`;
+    }
   }
   function subList(title, back, id) {
     $("view").innerHTML = subHead(title, back) + `<div class="pad" style="padding-top:8px" id="${id}"></div>`;
@@ -594,6 +616,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (HD.tick % 4 == 0) loadCfg();
     if (!TOKEN || $("app").hidden) return;
     if ((tab == 3 || tab == 4) && !axe && !opt && !HD.page) loadChat(false);
+    if (tab == 5 && HD.page == "settings" && $("xlist")) loadChat(false);
     if (HD.tick % 3 == 0) pollNotifs();
     if (HD.tick % 4 == 0) {
       if (tab == 0 && !axe && !opt && !HD.page) { loadCat(); loadHome(); }
