@@ -6,7 +6,7 @@ const E=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;","
 const css=document.createElement("style");
 const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#111;text-align:center;font-weight:800;padding:9px 12px;font-size:14px}\n.xm{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}\n.xm h2{font-size:26px;margin:10px 0}.xm p{color:var(--mute);margin-bottom:20px;line-height:1.6}\n.xbtn{border:0;border-radius:12px;background:var(--btn);color:var(--btnink);font:800 15px inherit;font-family:inherit;padding:10px 16px;cursor:pointer}\n.xs{width:34px;height:34px;border:0;border-radius:10px;background:var(--field);color:var(--ink);font-size:20px;cursor:pointer}\n.xc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}\n.xc small,.xpi small{color:var(--mute);display:block;margin-top:4px}\n.xr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}.xr.sp{justify-content:space-between;margin-top:0}\n.xchip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--field)}\n.xchip.st-new,.xchip.t-pending{background:#FFF3CD;color:#6b5200}.xchip.st-done,.xchip.t-approved{background:#E6F4E6;color:#1b6b1b}.xchip.st-cancelled,.xchip.t-rejected,.xchip.bad{background:#FDE8E8;color:#b71c1c}.xchip.st-processing{background:#DCEBFF;color:#1a4fa0}\n.xin{width:100%;height:50px;border-radius:14px;border:1.5px solid var(--line);background:var(--field);color:var(--ink);font:600 16px inherit;font-family:inherit;padding-inline:14px;margin:6px 0}\n.xfile{display:flex;align-items:center;justify-content:center;height:50px;border-radius:14px;border:1.5px dashed var(--ink);font-weight:800;cursor:pointer;margin:8px 0}\n.xrp{width:100%;max-height:220px;object-fit:contain;border-radius:14px;margin:6px 0 10px}\n.xw{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:10px;margin-bottom:10px;cursor:pointer}\n.xw.on{border-color:var(--ink)}.xw img,.xw .xph{width:46px;height:46px;border-radius:12px;object-fit:cover;background:var(--field);flex:none}\n.xw .xwi{flex:1;min-width:0}.xw b{display:block}.xw small{color:var(--mute)}.xw bdi{font-weight:800;color:var(--ink)}\n.xp{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.xp img,.xp .xph{width:78px;height:78px;border-radius:14px;object-fit:cover;background:var(--field);flex:none}.xpi{flex:1;min-width:0}\n.xi2{width:100%;height:100%;object-fit:cover;border-radius:14px}\n.xchat{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;margin-bottom:12px;padding:4px 0}\n.xmg{max-width:82%;padding:9px 13px;border-radius:16px;white-space:pre-wrap;line-height:1.5;font-weight:600}\n.xmg.me{align-self:flex-end;background:var(--btn);color:var(--btnink)}.xmg.ad{align-self:flex-start;background:var(--card);border:1px solid var(--line)}\n.xmg small{display:block;opacity:.6;font-size:11px;margin-top:2px}\n.xchip.on{background:var(--ink);color:var(--bg)}\nbutton.xchip{border:0;font-family:inherit;cursor:pointer}\n.xmut{color:var(--mute);font-weight:600;margin-bottom:8px;line-height:1.6}\n.xerr{background:var(--errbg);color:var(--err);border-radius:12px;padding:9px 12px;font-weight:700;margin:8px 0}\n.xcode{font-family:ui-monospace,monospace;background:var(--field);border-radius:12px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;direction:ltr;text-align:left;margin:8px 0}\n.xdone{text-align:center;padding:6px 0}.xdone .big{font-size:46px}.xdone .pz{font-size:26px;font-weight:900;margin:10px 0}\n.xbd{position:absolute;top:6px;inset-inline-end:6px;background:#e53935;color:#fff;border-radius:99px;min-width:16px;height:16px;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 3px}\n.ic button{position:relative}\nnav button{position:relative}nav .xbd{top:2px;inset-inline-end:calc(50% - 22px)}\n.sg{margin:0 16px 16px;border:1px solid var(--line);border-radius:28px;background:var(--card);overflow:hidden}\n.sr{display:flex;align-items:center;gap:14px;padding:16px 18px;min-height:82px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);color:inherit;font-family:inherit;text-align:start;cursor:pointer}\n.sg .sr:last-child{border-bottom:0}\n.sr .si{width:58px;height:58px;border-radius:18px;background:var(--field);display:grid;place-items:center;flex:none}\n.sr .si svg{width:29px;height:29px}\n.sr .sl{flex:1;font-weight:800;font-size:20px}\n.sr .sv{color:#9b9b9b;font-size:17px;display:flex;align-items:center;gap:6px;flex:none}\n.sr .sv svg{width:24px;height:24px}\n[dir=rtl] .sr .sv svg.chv{transform:scaleX(-1)}\n.sr.red .sl{color:#c52b50}.sr.red .si{background:#fdecef;color:#c52b50}\n.sw{width:58px;height:34px;border-radius:99px;background:#d3d3d3;position:relative;flex:none;transition:.2s}\n.sw::after{content:\"\";position:absolute;top:3px;inset-inline-start:3px;width:28px;height:28px;border-radius:50%;background:#fff;transition:.2s}\n.sw.on{background:#000}.sw.on::after{inset-inline-start:27px}\n.sh2{font-size:20px;font-weight:800;color:var(--mute);margin:18px 20px 10px}\n.xtn{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-weight:700}\n.xtn span{flex:1}\n.xnote{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin:0 16px 12px}\n";
 
-  css.textContent = CSS_TEXT;
+  css.textContent = CSS_TEXT + ".sl{white-space:nowrap}.sv{font-size:13px;white-space:nowrap}";
   document.head.appendChild(css);
 
   /* ---------- small helpers ---------- */
@@ -399,58 +399,35 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   /* ---------- account: settings entry + sub pages ---------- */
   const row = (icon, label, val, x, extra) => `<button class="sr" data-x="${x}"><span class="si">${icon}</span><span class="sl">${label}</span>${extra || `<span class="sv">${val ? E(val) : ""}${chvR}</span>`}</button>`;
   const subHead = (title, back) => `<div class="oh"><button class="bk" data-x="back:${back}" aria-label="back"></button><h2>${title}</h2></div>`;
-  function drawSettings() {
-    const chips = LI.map((k) => `<button class="xchip ${k == L ? "on" : ""}" data-x="setl:${k}" style="border:0;cursor:pointer;font-family:inherit;padding:8px 14px;font-size:14px;${k == L ? "background:#111;color:#fff" : ""}">${T[k].n}</button>`).join("");
-    const tones = TONES.map((t) => `<div class="xtn"><label style="flex:1;cursor:pointer"><input type="radio" name="tn" value="${t}" ${HD.tone == t ? "checked" : ""}> ${E(toneName(t))}</label><button class="xbtn" data-x="prev:${t}">▶</button></div>`).join("");
-    $("view").innerHTML = subHead(xt("settings"), "acct") +
-      `<div class="sg"><div class="sr" style="cursor:default"><span class="si">${IK.globe}</span><span class="sl">${xt("lang")}</span></div><div style="display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 16px">${chips}</div>
+  const settingsHTML = () => `<div class="sh2">${xt("settings")}</div>
+      <div class="sg">${row(IK.globe, xt("lang"), T[L].n, "langsheet")}
       <button class="sr" data-x="notiftoggle"><span class="si">${IK.bell}</span><span class="sl">${xt("notifs")}</span><span class="sw ${HD.notif ? "on" : ""}" id="nsw"></span></button>
-      <div id="trow" style="${HD.notif ? "" : "opacity:.45;pointer-events:none"}"><div class="sr" style="cursor:default"><span class="si">${IK.music}</span><span class="sl">${xt("tone")}</span></div><div style="padding:0 16px 12px">${tones}</div></div></div>
-      <div class="sh2">${xt("support")}</div>
-      <div class="sg" style="padding:14px"><div class="xchat" id="xlist" style="max-height:300px"></div><div class="xr" style="flex-wrap:nowrap"><input class="xin" id="xmsg" maxlength="1000" placeholder="${xt("typemsg")}" autocomplete="off" style="margin:0"><button class="xbtn" data-x="send" style="margin-inline-start:8px">${Z("إرسال","Send","Gửi","发送")}</button></div></div>
-      <div class="sh2">${xt("alerts")}</div><div class="sg" style="padding:14px" id="xal"></div>
-      <div class="sh2">${xt("purchases")}</div><div class="sg" style="padding:14px" id="xfa"></div>
-      <div class="sh2">${xt("myorders")}</div><div class="sg" style="padding:14px" id="xor"></div>
-      <div class="sg">${row(IK.dl, xt("chkupd"), `${xt("appver")} ${APP_VER}`, "chkupd")}</div>
+      <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
+      <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
+      ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
+      ${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      <div class="sg">${row(IK.dl, xt("chkupd"), APP_VER, "chkupd")}</div>
       <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
-    paintChat(true); loadChat(true); fillSettings();
-  }
-  async function fillSettings() {
-    const [r, a, o] = await Promise.all([call("notifications", {}), api("announcements", {}), call("orders", {})]);
-    if (HD.page != "settings") return;
-    const al = $("xal"), fa = $("xfa"), orr = $("xor");
-    if (al && r.ok) {
-      const items = r.items.map((n) => `<div class="xc" style="${n.is_read ? "opacity:.7" : "border-color:#E8A900"}"><b>${E(L == "ar" ? n.title : n.title_en || n.title)}</b><div>${E(L == "ar" ? n.body : n.body_en || n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("");
-      const anns = a.ok && a.items.length ? a.items.map((n) => `<div class="xc"><b>${n.pinned ? "📌 " : ""}${E(n.title)}</b><div style="white-space:pre-wrap">${E(n.body)}</div></div>`).join("") : "";
-      al.innerHTML = (items + anns) || `<p class="empty">${xt("noalerts") || ""}</p>`;
-      call("notif_read", { all: 1 }); HD.unread = 0; drawBadges();
-    }
-    if (o.ok) {
-      HD.orders = o.orders;
-      const f = o.orders.filter((x) => x.kind == "farm"), t = o.orders.filter((x) => x.kind == "tool" || x.kind == "opt");
-      if (fa) fa.innerHTML = f.length ? f.map((x) => `<div class="xc"><div class="xr sp"><b>${E(x.name)}</b>${stChip(x.status)}</div><small>${xt("pdate")}: ${fdate(x.created_at)}</small><small>${xt("price")}: ${amt(x.total, x.currency)} · #${x.id}</small>${x.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(x.delivery)}</div>` : ""}</div>`).join("") : `<p class="empty">${xt("nofarms")}</p>`;
-      if (orr) orr.innerHTML = t.length ? t.map(ordCard).join("") : `<p class="empty">${xt("noprodorders")}</p>`;
-    }
-  }
+  function drawSettings() { HD.page = null; drawShop(); }
   function subList(title, back, id) {
     $("view").innerHTML = subHead(title, back) + `<div class="pad" style="padding-top:8px" id="${id}"></div>`;
   }
   async function drawFarmsPage() {
-    subList(xt("purchases"), "settings", "xpg");
+    subList(xt("purchases"), "acct", "xpg");
     const r = await call("orders", {}); const el = $("xpg"); if (!r.ok || !el) return;
     const f = r.orders.filter((o) => o.kind == "farm");
     el.innerHTML = f.length ? f.map((o) => `<div class="xc"><div class="xr sp"><b>${E(o.name)}</b>${stChip(o.status)}</div><small>${xt("pdate")}: ${fdate(o.created_at)}</small><small>${xt("price")}: ${amt(o.total, o.currency)} · #${o.id}</small>${o.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : !["cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : ""}</div>`).join("") : `<p class="empty">${xt("nopurch")}</p>`;
     HD.orders = r.orders;
   }
   async function drawOrdersPage() {
-    subList(xt("myorders"), "settings", "xpg");
+    subList(xt("myorders"), "acct", "xpg");
     const r = await call("orders", {}); const el = $("xpg"); if (!r.ok || !el) return;
     const f = r.orders.filter((o) => o.kind == "tool" || o.kind == "opt");
     el.innerHTML = f.length ? f.map(ordCard).join("") : `<p class="empty">${xt("noprodorders")}</p>`;
     HD.orders = r.orders;
   }
   async function drawAlertsPage() {
-    subList(xt("alerts"), "settings", "xpg");
+    subList(xt("alerts"), "acct", "xpg");
     const [r, a] = await Promise.all([call("notifications", {}), api("announcements", {})]); const el = $("xpg"); if (!r.ok || !el) return;
     el.innerHTML = `<div class="xr sp"><b>${xt("alerts")}</b><button class="xbtn" data-x="readall">${xt("readall")}</button></div>` +
       (r.items.length ? r.items.map((n) => `<div class="xc" data-x="notif:${n.id}" style="${n.is_read ? "opacity:.7" : "border-color:#E8A900"};cursor:pointer"><b>${E(L == "ar" ? n.title : n.title_en || n.title)}</b><div>${E(L == "ar" ? n.body : n.body_en || n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("") : `<p class="empty">${xt("nonotif")}</p>`) +
@@ -517,7 +494,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       const sel = $("lsel2");
       if (sel) {
         const card = sel.closest(".fc");
-        if (card) card.outerHTML = `<div class="sg" style="margin-top:0">${row((SV('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')), xt("settings"), "", "settings")}</div>`;
+        if (card) card.outerHTML = settingsHTML();
       }
     }
   };
