@@ -299,7 +299,7 @@ const CSS = `*{box-sizing:border-box}body{margin:0;font-family:system-ui,Tahoma,
 const html = (title: string, body: string, headers: Row = {}) =>
   new Response(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${h(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`, {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-      "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'", ...headers },
+      "Content-Security-Policy": "default-src 'none'; connect-src 'self'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'", ...headers },
   });
 const redirect = (to: string, headers: Row = {}) => new Response(null, { status: 303, headers: { Location: to, ...headers } });
 
@@ -422,6 +422,7 @@ async function adminNav(cur: string) {
   return `<nav class="tabs">${TABS.map(([k, l]) => `<a class="${k === cur ? "on" : ""}" href="/admin?tab=${k}">${l}${badge[k] ? `<i>${badge[k]}</i>` : ""}</a>`).join("")}</nav>`;
 }
 const PICK_JS = `<script>document.addEventListener("change",function(e){var i=e.target;if(!i.classList||!i.classList.contains("pick")||!i.files[0])return;var r=new FileReader();r.onload=function(){var im=new Image();im.onload=function(){var m=700,k=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);var d=c.toDataURL("image/jpeg",0.8);i.parentNode.querySelector("input[name=image]").value=d;var pv=i.parentNode.querySelector("img.th");if(pv)pv.src=d;};im.src=r.result;};r.readAsDataURL(i.files[0]);});document.addEventListener("click",function(e){var b=e.target;if(b.dataset&&b.dataset.copy){navigator.clipboard&&navigator.clipboard.writeText(b.dataset.copy);b.textContent="تم النسخ";}});</script>`;
+const LIVE_JS = `<script>(function(){function near(el){return el.scrollHeight-el.scrollTop-el.clientHeight<80}setInterval(async function(){if(document.hidden)return;try{var r=await fetch(location.href,{credentials:"same-origin"});if(!r.ok)return;var d=new DOMParser().parseFromString(await r.text(),"text/html");var a=document.getElementById("thr"),b=d.getElementById("thr");if(a&&b&&a.innerHTML!==b.innerHTML)a.innerHTML=b.innerHTML;var c=document.getElementById("chat"),e=d.getElementById("chat");if(c&&e&&c.innerHTML!==e.innerHTML){var s=near(c);c.innerHTML=e.innerHTML;if(s)c.scrollTop=c.scrollHeight}var n1=document.querySelector("nav.tabs"),n2=d.querySelector("nav.tabs");if(n1&&n2&&n1.innerHTML!==n2.innerHTML)n1.innerHTML=n2.innerHTML}catch(x){}},5000);var c=document.getElementById("chat");if(c)c.scrollTop=c.scrollHeight})()</script>`;
 const picker = (cur: any) => `<span class="row"><img class="th" ${cur ? `src="${h(cur)}"` : 'style="visibility:hidden"'} alt=""><input type="hidden" name="image" value=""><input class="pick" type="file" accept="image/*"></span>`;
 const fmtT = (t: any) => (num(t) ? new Date(num(t) * 1000).toISOString().slice(0, 16).replace("T", " ") : "—");
 
@@ -553,12 +554,13 @@ async function adminShell(tab: string, csrf: string, flash: string, url: URL): P
   if (tab === "support") {
     const uid = Number(url.searchParams.get("u")) || 0;
     const threads = await run(`SELECT m.user_id, u.username, MAX(m.id) last_id, SUM(CASE WHEN m.sender='user' AND m.seen=0 THEN 1 ELSE 0 END) unread FROM messages m LEFT JOIN users u ON u.id = m.user_id GROUP BY m.user_id, u.username ORDER BY last_id DESC LIMIT 100`);
-    out += `<div class="box"><h2>المحادثات</h2><nav class="tabs">${threads.map((t) => `<a class="${uid === Number(t.user_id) ? "on" : ""}" href="/admin?tab=support&u=${t.user_id}">${h(t.username ?? "—")}${num(t.unread) ? `<i>${num(t.unread)}</i>` : ""}</a>`).join("") || "لا توجد رسائل بعد."}</nav>`;
+    out += `<div class="box"><h2>المحادثات</h2><nav class="tabs" id="thr">${threads.map((t) => `<a class="${uid === Number(t.user_id) ? "on" : ""}" href="/admin?tab=support&u=${t.user_id}">${h(t.username ?? "—")}${num(t.unread) ? `<i>${num(t.unread)}</i>` : ""}</a>`).join("") || "لا توجد رسائل بعد."}</nav>`;
     if (uid > 0) {
+      await run(`UPDATE messages SET seen = 1 WHERE user_id = $1 AND sender = 'user'`, [uid]);
       const msgs = (await run(`SELECT * FROM messages WHERE user_id = $1 ORDER BY id DESC LIMIT 200`, [uid])).reverse();
-      out += `<div class="chat">${msgs.map((m) => `<div class="b ${m.sender === "admin" ? "a" : "u"}">${h(m.body)}<br><small style="opacity:.6">${fmtT(m.created_at)}</small></div>`).join("")}</div>${F("support_reply", `${hid("uid", uid)}<textarea name="body" placeholder="اكتب ردك" required></textarea><p><button class="y">إرسال الرد</button></p>`, `&u=${uid}`)}`;
+      out += `<div class="chat" id="chat">${msgs.map((m) => `<div class="b ${m.sender === "admin" ? "a" : "u"}">${h(m.body)}<br><small style="opacity:.6">${fmtT(m.created_at)}</small></div>`).join("")}</div>${F("support_reply", `${hid("uid", uid)}<textarea name="body" placeholder="اكتب ردك" required></textarea><p><button class="y">إرسال الرد</button></p>`, `&u=${uid}`)}`;
     }
-    return out + `</div></div>`;
+    return out + `</div></div>${LIVE_JS}`;
   }
   if (tab === "settings") {
     const mo = (await getSet("maint_on")) === "1", bo = (await getSet("banner_on")) === "1";

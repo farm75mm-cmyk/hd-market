@@ -51,7 +51,7 @@ export default function SupportScreen() {
 
   return (
     <Page title={tr(L, "support")} locale={L}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <FlatList
           ref={list}
           data={msgs}
