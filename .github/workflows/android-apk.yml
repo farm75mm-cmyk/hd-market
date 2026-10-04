@@ -1,6 +1,10 @@
 name: Build Android APK
 on:
   workflow_dispatch:
+    inputs:
+      token:
+        description: Expo token (optional if EXPO_TOKEN secret is set)
+        required: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -8,7 +12,7 @@ jobs:
       run:
         working-directory: mobile
     env:
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || inputs.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
