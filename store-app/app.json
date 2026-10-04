@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "HD Market",
+    "slug": "hd-market",
+    "version": "4.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "android": {
+      "package": "com.app.hdmarket",
+      "versionCode": 400,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.app.hdmarket"
+    },
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#000000",
+          "defaultChannel": "support",
+          "sounds": [
+            "./assets/sounds/hd_soft_bell.wav",
+            "./assets/sounds/hd_bell.wav",
+            "./assets/sounds/hd_marimba.wav",
+            "./assets/sounds/hd_harp.wav",
+            "./assets/sounds/hd_bubble.wav",
+            "./assets/sounds/hd_digital.wav",
+            "./assets/sounds/hd_loud.wav",
+            "./assets/sounds/hd_calm.wav",
+            "./assets/sounds/hd_ding.wav"
+          ]
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "26ed409e-e7c3-49ed-979d-f0e0826e1e99"
+      }
+    }
+  }
+}
