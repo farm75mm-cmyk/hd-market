@@ -52,7 +52,15 @@ await run(`CREATE TABLE IF NOT EXISTS topups (id ${serial}, user_id BIGINT NOT N
 await run(`CREATE TABLE IF NOT EXISTS messages (id ${serial}, user_id BIGINT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL, seen INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 const getSet = async (k: string, d = "") => String((await first(`SELECT v FROM settings WHERE k = $1`, [k]))?.v ?? d);
 const putSet = async (k: string, v: string) => { await run(`DELETE FROM settings WHERE k = $1`, [k]); await run(`INSERT INTO settings (k, v) VALUES ($1, $2)`, [k, v]); };
-const IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
+if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v1"]))) {
+  let order = 1;
+  for (const n of ["أدوات حظيرة", "أدوات أرض", "أدوات صومعة"]) {
+    if (!(await first(`SELECT 1 FROM categories WHERE name = $1`, [n]))) await run(`INSERT INTO categories (name, image, sort, created_at) VALUES ($1,NULL,$2,$3)`, [n, order, now()]);
+    order++;
+  }
+  await putSet("seed_tools_v1", "1");
+}
+const IMG_RE =/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
 const okImg = (v: any) => typeof v === "string" && v.length <= 450000 && IMG_RE.test(v);
 const ORDER_STATUS: Record<string, string> = { new: "جديد", processing: "قيد التنفيذ", done: "مكتمل", cancelled: "ملغي" };
 
