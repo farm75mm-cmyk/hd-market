@@ -43,6 +43,7 @@ try { await run(`ALTER TABLE users ADD COLUMN balance DOUBLE PRECISION NOT NULL 
 await run(`CREATE TABLE IF NOT EXISTS categories (id ${serial}, name TEXT NOT NULL, image TEXT, sort INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS products (id ${serial}, category_id BIGINT NOT NULL, name TEXT NOT NULL, image TEXT, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   qty INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
+try { await run(`ALTER TABLE push_tokens ADD COLUMN tone TEXT NOT NULL DEFAULT 'soft_bell'`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN pack INT NOT NULL DEFAULT 1`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN max_order INT NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
@@ -133,14 +134,15 @@ async function sendResetMail(to: string, lang: string, code: string) {
   } catch { return false; }
 }
 
+const TONES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital", "loud", "calm", "ding", "silent"];
 async function sendPush(uid: number) {
-  const rows = await run(`SELECT token FROM push_tokens WHERE user_id = $1`, [uid]);
+  const rows = await run(`SELECT token, tone FROM push_tokens WHERE user_id = $1`, [uid]);
   if (!rows.length) return;
   try {
     const r = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(rows.map((x) => ({ to: x.token, title: "HD Market", body: "وصل رد جديد من الدعم", data: { screen: "support" }, sound: "default", channelId: "support", priority: "high" }))),
+      body: JSON.stringify(rows.map((x) => ({ to: x.token, title: "HD Market", body: "وصل رد جديد من الدعم", data: { screen: "support" }, sound: x.tone === "silent" ? null : `hd_${x.tone}.wav`, channelId: `hd_support_${x.tone}`, priority: "high" }))),
     });
     const j: any = await r.json().catch(() => ({}));
     const list: any[] = Array.isArray(j.data) ? j.data : [];
@@ -310,8 +312,9 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
     const u = await authUser(b);
     const pt = String(b.push_token ?? "");
     if (!/^Expo(nent)?PushToken\[[\w-]+\]$/.test(pt)) throw new Fail("invalid");
+    const tone = TONES.includes(String(b.tone)) ? String(b.tone) : "soft_bell";
     await run(`DELETE FROM push_tokens WHERE token = $1`, [pt]);
-    await run(`INSERT INTO push_tokens (token, user_id, updated_at) VALUES ($1,$2,$3)`, [pt, u.id, now()]);
+    await run(`INSERT INTO push_tokens (token, user_id, updated_at, tone) VALUES ($1,$2,$3,$4)`, [pt, u.id, now(), tone]);
     return ok();
   },
   async support_poll(b) {

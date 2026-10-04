@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, getToken } from "@/lib/api";
 import { tr, useLocale } from "@/lib/i18n-app";
 import { registerPush } from "@/lib/push";
+import { playChosenTone } from "@/lib/tones";
 
 const LOGO = require("@/assets/images/hd-market-logo.png");
 
@@ -35,6 +36,7 @@ export function SupportWatcher() {
       if (r.unread > 0 && r.last_id > shown.current && path !== "/support") {
         shown.current = r.last_id;
         setNote({ id: r.last_id, body: r.body });
+        void playChosenTone();
         if (hideTimer.current) clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => setNote(null), 8000);
       }

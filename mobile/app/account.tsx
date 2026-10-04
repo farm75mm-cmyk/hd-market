@@ -21,6 +21,8 @@ import {
 } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { DEFAULT_TONE, TONES, getTone, previewTone, saveTone, toneLabel, type ToneKey } from "@/lib/tones";
+import { syncPushTone } from "@/lib/push";
 import { clearSession, getSession, renameAccount, syncAvatar } from "@/lib/auth-server";
 import { getUsernameChangeDaysRemaining } from "@/lib/profile-utils";
 import {
@@ -345,6 +347,9 @@ export default function AccountDetailsScreen() {
   const [nameError, setNameError] = useState("");
   const [saving, setSaving] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [toneOpen, setToneOpen] = useState(false);
+  const [notifTone, setNotifTone] = useState<ToneKey>(DEFAULT_TONE);
+  useEffect(() => { getTone().then(setNotifTone).catch(() => undefined); }, []);
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     DEFAULT_SETTINGS.notificationsEnabled,
   );
@@ -422,14 +427,11 @@ export default function AccountDetailsScreen() {
     }
   };
 
-  const cycleTone = () => {
-    const tones: ToneId[] = ["classic", "bell", "digital"];
-    const nextTone = tones[(tones.indexOf(tone) + 1) % tones.length];
-    setTone(nextTone);
-    persistSettings({ notificationsEnabled, tone: nextTone }).catch(() => undefined);
-    if (Platform.OS !== "web") {
-      Haptics.selectionAsync();
-    }
+  const chooseTone = async (k: ToneKey) => {
+    setNotifTone(k);
+    await saveTone(k);
+    void syncPushTone();
+    if (Platform.OS !== "web") Haptics.selectionAsync();
   };
 
   const pickProfilePhoto = async () => {
@@ -683,8 +685,8 @@ export default function AccountDetailsScreen() {
                 label={copy.notificationTone}
                 icon="musical-notes-outline"
                 rtl={rtl}
-                value={copy.tones[tone]}
-                onPress={cycleTone}
+                value={toneLabel(notifTone, locale)}
+                onPress={() => setToneOpen(true)}
                 last
               />
             </View>
@@ -829,6 +831,54 @@ export default function AccountDetailsScreen() {
             })}
             <Pressable
               onPress={() => setLanguageOpen(false)}
+              style={({ pressed }) => [styles.closeButton, pressed && styles.saveButtonPressed]}
+            >
+              <Text style={styles.closeButtonText}>{copy.close}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal visible={toneOpen} transparent animationType="slide" onRequestClose={() => setToneOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setToneOpen(false)}>
+          <Pressable style={[styles.languageSheet, { maxHeight: "85%" }]} onPress={() => undefined}>
+            <View style={styles.sheetHandle} />
+            <Text style={[styles.sheetTitle, rtl ? styles.textRtl : styles.textLtr]}>
+              🔔 {copy.notificationTone}
+            </Text>
+            <ScrollView>
+              {TONES.map((t) => {
+                const selected = t.key === notifTone;
+                return (
+                  <Pressable
+                    key={t.key}
+                    onPress={() => chooseTone(t.key)}
+                    style={({ pressed }) => [
+                      styles.languageOption,
+                      { flexDirection: rtl ? "row-reverse" : "row" },
+                      selected && styles.languageOptionSelected,
+                      pressed && styles.pressedSoft,
+                    ]}
+                  >
+                    <Pressable
+                      hitSlop={8}
+                      disabled={t.key === "silent"}
+                      onPress={() => previewTone(t.key)}
+                      style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: t.key === "silent" ? "#EEE" : "#000" }}
+                    >
+                      <Ionicons name={t.key === "silent" ? "volume-mute" : "play"} size={18} color={t.key === "silent" ? "#999" : "#FFF"} />
+                    </Pressable>
+                    <Text style={[styles.languageNative, { flex: 1, marginHorizontal: 12, textAlign: rtl ? "right" : "left" }]}>
+                      {t.emoji} {toneLabel(t.key, locale)}
+                    </Text>
+                    <View style={{ width: 24, alignItems: "center" }}>
+                      {selected ? <Ionicons name="checkmark" size={22} color="#000" /> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable
+              onPress={() => setToneOpen(false)}
               style={({ pressed }) => [styles.closeButton, pressed && styles.saveButtonPressed]}
             >
               <Text style={styles.closeButtonText}>{copy.close}</Text>

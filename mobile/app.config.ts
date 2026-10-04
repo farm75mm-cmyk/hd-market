@@ -39,6 +39,8 @@ const env = {
   androidPackage: bundleId,
 };
 
+const SOUND_FILES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital", "loud", "calm", "ding"].map((n) => `./assets/sounds/hd_${n}.wav`);
+
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
@@ -93,6 +95,7 @@ const config: ExpoConfig = {
         icon: "./assets/images/notification-icon.png",
         color: "#000000",
         defaultChannel: "support",
+        sounds: SOUND_FILES,
       },
     ],
     [
