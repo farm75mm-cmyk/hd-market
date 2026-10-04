@@ -295,7 +295,7 @@ export default function StoreScreen() {
       <StatusBar style="dark" />
       <View style={styles.page}>
         <FlatList
-          data={[...CATEGORY_ORDER, ...serverCats] as (CategoryId | { id: number; name: string; image: string | null })[]}
+          data={serverCats as (CategoryId | { id: number; name: string; image: string | null })[]}
           renderItem={renderEntry}
           keyExtractor={(item) => (typeof item === "string" ? item : `s${item.id}`)}
           numColumns={2}
