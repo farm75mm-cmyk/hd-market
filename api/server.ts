@@ -43,7 +43,6 @@ try { await run(`ALTER TABLE users ADD COLUMN balance DOUBLE PRECISION NOT NULL 
 await run(`CREATE TABLE IF NOT EXISTS categories (id ${serial}, name TEXT NOT NULL, image TEXT, sort INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS products (id ${serial}, category_id BIGINT NOT NULL, name TEXT NOT NULL, image TEXT, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   qty INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
-try { await run(`ALTER TABLE push_tokens ADD COLUMN tone TEXT NOT NULL DEFAULT 'soft_bell'`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN pack INT NOT NULL DEFAULT 1`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN max_order INT NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
@@ -54,6 +53,7 @@ await run(`CREATE TABLE IF NOT EXISTS topups (id ${serial}, user_id BIGINT NOT N
   receipt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', note TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS messages (id ${serial}, user_id BIGINT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL, seen INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS push_tokens (token TEXT PRIMARY KEY, user_id BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
+try { await run(`ALTER TABLE push_tokens ADD COLUMN tone TEXT NOT NULL DEFAULT 'soft_bell'`); } catch {}
 const getSet = async (k: string, d = "") => String((await first(`SELECT v FROM settings WHERE k = $1`, [k]))?.v ?? d);
 const putSet = async (k: string, v: string) => { await run(`DELETE FROM settings WHERE k = $1`, [k]); await run(`INSERT INTO settings (k, v) VALUES ($1, $2)`, [k, v]); };
 if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v1"]))) {
