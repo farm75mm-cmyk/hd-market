@@ -1,0 +1,611 @@
+/* HD Market live overlay v5 */
+(function(){
+"use strict";
+const HD={cfg:null,cats:[],prods:[],orders:[],msgs:[],sel:null,rc:null,qty:{},open:0,tick:0};
+const E=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const css=document.createElement("style");
+const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#111;text-align:center;font-weight:800;padding:9px 12px;font-size:14px}\n.xm{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}\n.xm h2{font-size:26px;margin:10px 0}.xm p{color:var(--mute);margin-bottom:20px;line-height:1.6}\n.xbtn{border:0;border-radius:12px;background:var(--btn);color:var(--btnink);font:800 15px inherit;font-family:inherit;padding:10px 16px;cursor:pointer}\n.xs{width:34px;height:34px;border:0;border-radius:10px;background:var(--field);color:var(--ink);font-size:20px;cursor:pointer}\n.xc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}\n.xc small,.xpi small{color:var(--mute);display:block;margin-top:4px}\n.xr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}.xr.sp{justify-content:space-between;margin-top:0}\n.xchip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--field)}\n.xchip.st-new,.xchip.t-pending{background:#FFF3CD;color:#6b5200}.xchip.st-done,.xchip.t-approved{background:#E6F4E6;color:#1b6b1b}.xchip.st-cancelled,.xchip.t-rejected,.xchip.bad{background:#FDE8E8;color:#b71c1c}.xchip.st-processing{background:#DCEBFF;color:#1a4fa0}\n.xin{width:100%;height:50px;border-radius:14px;border:1.5px solid var(--line);background:var(--field);color:var(--ink);font:600 16px inherit;font-family:inherit;padding-inline:14px;margin:6px 0}\n.xfile{display:flex;align-items:center;justify-content:center;height:50px;border-radius:14px;border:1.5px dashed var(--ink);font-weight:800;cursor:pointer;margin:8px 0}\n.xrp{width:100%;max-height:220px;object-fit:contain;border-radius:14px;margin:6px 0 10px}\n.xw{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:10px;margin-bottom:10px;cursor:pointer}\n.xw.on{border-color:var(--ink)}.xw img,.xw .xph{width:46px;height:46px;border-radius:12px;object-fit:cover;background:var(--field);flex:none}\n.xw .xwi{flex:1;min-width:0}.xw b{display:block}.xw small{color:var(--mute)}.xw bdi{font-weight:800;color:var(--ink)}\n.xp{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.xp img,.xp .xph{width:78px;height:78px;border-radius:14px;object-fit:cover;background:var(--field);flex:none}.xpi{flex:1;min-width:0}\n.xi2{width:100%;height:100%;object-fit:cover;border-radius:14px}\n.xchat{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;margin-bottom:12px;padding:4px 0}\n.xmg{max-width:82%;padding:9px 13px;border-radius:16px;white-space:pre-wrap;line-height:1.5;font-weight:600}\n.xmg.me{align-self:flex-end;background:var(--btn);color:var(--btnink)}.xmg.ad{align-self:flex-start;background:var(--card);border:1px solid var(--line)}\n.xmg small{display:block;opacity:.6;font-size:11px;margin-top:2px}\n.xchip.on{background:var(--ink);color:var(--bg)}\nbutton.xchip{border:0;font-family:inherit;cursor:pointer}\n.xmut{color:var(--mute);font-weight:600;margin-bottom:8px;line-height:1.6}\n.xerr{background:var(--errbg);color:var(--err);border-radius:12px;padding:9px 12px;font-weight:700;margin:8px 0}\n.xcode{font-family:ui-monospace,monospace;background:var(--field);border-radius:12px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;direction:ltr;text-align:left;margin:8px 0}\n.xdone{text-align:center;padding:6px 0}.xdone .big{font-size:46px}.xdone .pz{font-size:26px;font-weight:900;margin:10px 0}\n.xbd{position:absolute;top:6px;inset-inline-end:6px;background:#e53935;color:#fff;border-radius:99px;min-width:16px;height:16px;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 3px}\n.ic button{position:relative}\nnav button{position:relative}nav .xbd{top:2px;inset-inline-end:calc(50% - 22px)}\n.sg{margin:0 16px 16px;border:1px solid var(--line);border-radius:28px;background:var(--card);overflow:hidden}\n.sr{display:flex;align-items:center;gap:14px;padding:16px 18px;min-height:82px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);color:inherit;font-family:inherit;text-align:start;cursor:pointer}\n.sg .sr:last-child{border-bottom:0}\n.sr .si{width:58px;height:58px;border-radius:18px;background:var(--field);display:grid;place-items:center;flex:none}\n.sr .si svg{width:29px;height:29px}\n.sr .sl{flex:1;font-weight:800;font-size:20px}\n.sr .sv{color:#9b9b9b;font-size:17px;display:flex;align-items:center;gap:6px;flex:none}\n.sr .sv svg{width:24px;height:24px}\n[dir=rtl] .sr .sv svg.chv{transform:scaleX(-1)}\n.sr.red .sl{color:#c52b50}.sr.red .si{background:#fdecef;color:#c52b50}\n.sw{width:58px;height:34px;border-radius:99px;background:#d3d3d3;position:relative;flex:none;transition:.2s}\n.sw::after{content:\"\";position:absolute;top:3px;inset-inline-start:3px;width:28px;height:28px;border-radius:50%;background:#fff;transition:.2s}\n.sw.on{background:#000}.sw.on::after{inset-inline-start:27px}\n.sh2{font-size:20px;font-weight:800;color:var(--mute);margin:18px 20px 10px}\n.xtn{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-weight:700}\n.xtn span{flex:1}\n.xnote{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin:0 16px 12px}\n";
+
+  css.textContent = CSS_TEXT;
+  document.head.appendChild(css);
+
+  /* ---------- small helpers ---------- */
+  const Z = (...a) => a[li()] ?? a[1];
+  const CURS = ["JOD", "IQD", "USDT"], DEC = { JOD: 3, IQD: 0, USDT: 4 };
+  const LSg = (k, d) => { try { const v = localStorage.getItem("hd-" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+  const LSs = (k, v) => { try { localStorage.setItem("hd-" + k, JSON.stringify(v)); } catch (e) {} };
+  const post = (m) => { try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch (e) {} };
+  const APP_VER = "4.0.0";
+  const TONES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital", "loud", "calm", "ding", "silent"];
+  HD.cur = LSg("cur", "JOD"); HD.notif = LSg("notif", true); HD.tone = LSg("tone", "soft_bell");
+  HD.lastN = LSg("lastn", 0); HD.lastS = LSg("lasts", 0); HD.page = null; HD.unread = 0; HD.sup = 0;
+  HD.opt = null; HD.farms = []; HD.codes = []; HD.boxes = []; HD.grp = []; HD.cq = {}; HD.counts = { opt: 0, farms: 0, codes: 0, boxes: 0 };
+  const idem = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const rates = () => (HD.cfg && HD.cfg.rates) || HD.rates || {};
+  const rate = (c) => (c === "USDT" ? 1 : rates()[c] || 1);
+  const cv = (usdt, c = HD.cur) => { const f = 10 ** DEC[c]; return Math.ceil(usdt * rate(c) * f - 1e-7) / f; };
+  const nf = (v, c) => Number(v).toLocaleString("en-US", { minimumFractionDigits: c === "IQD" ? 0 : Math.min(2, DEC[c]), maximumFractionDigits: DEC[c] });
+  const amt = (v, c = HD.cur) => `${nf(v, c)} ${c}`;
+  const mon = (usdt, c = HD.cur) => amt(cv(usdt, c), c);
+  const bal = (c = HD.cur) => (ME && ME.balances ? Number(ME.balances[c] || 0) : 0);
+  const fdate = (ts) => new Date(ts * 1000).toLocaleString(LOC[L], { dateStyle: "medium", timeStyle: "short" });
+  function setBal(b) {
+    if (!b || !ME) return;
+    ME.balances = b; ME.balance = b.JOD; BAL = bal();
+    document.querySelectorAll(".wal b").forEach((el) => (el.textContent = nf(bal(), HD.cur)));
+    document.querySelectorAll(".wp > span").forEach((el) => (el.textContent = nf(bal(), HD.cur)));
+  }
+  const ERR = {
+    insufficient_balance: ["رصيدك غير كافٍ. اشحن رصيدك أولًا.", "Insufficient balance. Top up first.", "Số dư không đủ. Hãy nạp tiền trước.", "余额不足，请先充值。"],
+    out_of_stock: ["الكمية غير متوفرة.", "Not enough stock.", "Không đủ hàng.", "库存不足。"],
+    limit_exceeded: ["تجاوزت الحد المسموح للطلب الواحد.", "Over the per-order limit.", "Vượt quá giới hạn mỗi đơn.", "超出单笔订单限制。"],
+    out_of_limits: ["المبلغ خارج الحدود المسموحة.", "Amount outside the allowed limits.", "Số tiền ngoài giới hạn cho phép.", "金额超出允许范围。"],
+    network: ["تعذّر الاتصال بالخادم.", "Can't reach the server.", "Không kết nối được máy chủ.", "无法连接服务器。"],
+    too_many: ["طلبات كثيرة. حاول لاحقًا.", "Too many requests. Try later.", "Quá nhiều yêu cầu. Thử lại sau.", "请求过多，请稍后再试。"],
+    not_found: ["غير موجود.", "Not found.", "Không tìm thấy.", "未找到。"],
+    bad_transition: ["لا يمكن تنفيذ العملية في هذه الحالة.", "Not possible in this state.", "Không thể thực hiện ở trạng thái này.", "当前状态无法操作。"],
+  };
+  const emsg = (r) => { const m = ERR[r && r.error]; return m ? Z(...m) : Z("حدث خطأ. حاول مجددًا.", "Something went wrong. Try again.", "Đã xảy ra lỗi. Thử lại.", "出错了，请重试。"); };
+  async function call(name, body) {
+    const r = await api(name, { token: TOKEN, ...body });
+    if (r.error == "unauthorized") sessionOut();
+    return r;
+  }
+
+  /* ---------- statuses ---------- */
+  const ST = {
+    awaiting_payment: ["بانتظار الدفع", "Awaiting payment", "Chờ thanh toán", "待付款", "o"], proof_sent: ["تم إرسال إثبات الدفع", "Proof sent", "Đã gửi chứng từ", "凭证已发送", "o"],
+    under_review: ["قيد المراجعة", "Under review", "Đang xem xét", "审核中", "o"], verifying: ["قيد التحقق", "Verifying", "Đang xác minh", "核实中", "o"],
+    approved: ["تمت الموافقة", "Approved", "Đã duyệt", "已批准", "g"], credited: ["تمت إضافة الرصيد", "Credited", "Đã cộng tiền", "已到账", "g"],
+    rejected: ["مرفوض", "Rejected", "Bị từ chối", "已拒绝", "r"], cancelled: ["ملغي", "Cancelled", "Đã hủy", "已取消", "r"], expired: ["منتهي الصلاحية", "Expired", "Hết hạn", "已过期", "n"],
+    amount_mismatch: ["مبلغ غير مطابق", "Amount mismatch", "Số tiền không khớp", "金额不符", "r"], reversed: ["تم عكس العملية", "Reversed", "Đã hoàn tác", "已冲正", "r"],
+    done: ["مكتمل", "Done", "Hoàn thành", "已完成", "g"], new: ["جديد", "New", "Mới", "新", "o"], processing: ["قيد التنفيذ", "Processing", "Đang xử lý", "处理中", "o"],
+  };
+  const stChip = (s) => { const x = ST[s] || [s, s, s, s, "n"]; return `<span class="xchip st-${x[4] == "g" ? "done" : x[4] == "r" ? "cancelled" : x[4] == "o" ? "new" : ""}">${E(Z(x[0], x[1], x[2], x[3]))}</span>`; };
+  const TT = { deposit: ["شحن", "Top-up", "Nạp tiền", "充值"], purchase: ["شراء", "Purchase", "Mua hàng", "购买"], refund: ["استرجاع", "Refund", "Hoàn tiền", "退款"], admin_credit: ["إضافة من الإدارة", "Admin credit", "Quản trị cộng tiền", "管理员加款"], admin_debit: ["خصم من الإدارة", "Admin debit", "Quản trị trừ tiền", "管理员扣款"], reversal: ["عكس عملية", "Reversal", "Hoàn tác", "冲正"] };
+  const KIND = { tool: ["أدوات", "Tools", "Công cụ", "工具"], opt: ["منتجات اختياري", "Optional", "Tùy chọn", "自选"], farm: ["مزرعة", "Farm", "Nông trại", "农场"], code: ["كود", "Code", "Mã", "代码"], random: ["عشوائي", "Random", "Ngẫu nhiên", "随机"] };
+
+  /* ---------- UI strings (4 languages) ---------- */
+  const U = {
+    pack: ["العدد", "Count", "Số lượng gói", "数量"], limit: ["الحد المسموح", "Max per order", "Tối đa mỗi đơn", "每单上限"], maint: ["تحت الصيانة", "Under maintenance", "Đang bảo trì", "维护中"], retry: ["إعادة المحاولة", "Try again", "Thử lại", "重试"],
+    items: ["عنصر", "items", "mục", "项"], nocat: ["لا توجد أقسام بعد.", "No sections yet.", "Chưa có mục nào.", "暂无分类。"], noprod: ["لا توجد منتجات في هذا القسم.", "No products in this section.", "Không có sản phẩm trong mục này.", "此分类暂无商品。"],
+    price: ["السعر", "Price", "Giá", "价格"], qty: ["العدد", "Qty", "SL", "数量"], buy: ["شراء", "Buy", "Mua", "购买"], sold: ["نفد", "Sold out", "Hết hàng", "售罄"], total: ["الإجمالي", "Total", "Tổng", "合计"],
+    confirm: ["تأكيد الشراء", "Confirm purchase", "Xác nhận mua", "确认购买"], yourbal: ["رصيدك", "Your balance", "Số dư của bạn", "你的余额"], topup: ["شحن الرصيد", "Top up balance", "Nạp tiền", "充值"],
+    bought: ["تم تقديم الطلب", "Order placed", "Đã đặt hàng", "下单成功"], noorders: ["لا توجد طلبات بعد.", "No orders yet.", "Chưa có đơn hàng.", "暂无订单。"],
+    pay: ["محافظ الدفع", "Payment methods", "Phương thức thanh toán", "支付方式"], paynum: ["معلومات الدفع", "Payment info", "Thông tin thanh toán", "付款信息"], copy: ["نسخ", "Copy", "Sao chép", "复制"], copied: ["تم النسخ", "Copied", "Đã sao chép", "已复制"],
+    amount: ["المبلغ", "Amount", "Số tiền", "金额"], pick: ["اختيار صورة إيصال الدفع", "Choose payment receipt image", "Chọn ảnh biên lai", "选择付款凭证图片"], send: ["إرسال طلب الشحن", "Submit top-up request", "Gửi yêu cầu nạp", "提交充值请求"],
+    hist: ["سجل المحفظة", "Wallet history", "Lịch sử ví", "钱包记录"], nohist: ["لا توجد عمليات.", "No activity.", "Chưa có hoạt động.", "暂无记录。"],
+    need: ["اختر الطريقة وأدخل المبلغ وأرفق صورة الإيصال.", "Choose a method, enter the amount and attach the receipt.", "Chọn phương thức, nhập số tiền và đính kèm biên lai.", "请选择方式、输入金额并上传凭证。"],
+    topsent: ["تم إرسال طلب الشحن وسيتم مراجعته.", "Top-up request sent. It will be reviewed.", "Đã gửi yêu cầu nạp, sẽ được xem xét.", "充值请求已提交，将进行审核。"],
+    nowal: ["لا توجد طرق دفع حالياً.", "No payment methods available.", "Chưa có phương thức thanh toán.", "暂无支付方式。"],
+    typemsg: ["اكتب رسالتك...", "Type your message...", "Nhập tin nhắn...", "输入消息..."], sendm: ["إرسال", "Send", "Gửi", "发送"], nomsg: ["ابدأ المحادثة مع الدعم.", "Start a conversation with support.", "Bắt đầu trò chuyện với hỗ trợ.", "开始与客服对话。"],
+    farms: ["المزارع", "Farms", "Nông trại", "农场"], codes: ["أكواد الاشتراك", "Subscription codes", "Mã đăng ký", "订阅码"], boxes: ["المنتجات العشوائية", "Random boxes", "Hộp ngẫu nhiên", "随机盲盒"], groups: ["المجموعات", "Groups", "Nhóm", "群组"],
+    avail: ["متاحة", "available", "còn", "可购"], types: ["نوع", "types", "loại", "种"], bx: ["صندوق", "boxes", "hộp", "个盲盒"], instock: ["متوفر", "In stock", "Còn hàng", "有货"],
+    nofarm: ["لا مزارع متاحة حاليًا.", "No farms available now.", "Hiện không có nông trại.", "暂无可购农场。"], nocode: ["لا أكواد حاليًا.", "No codes now.", "Hiện chưa có mã.", "暂无代码。"], nobox: ["لا صناديق حاليًا.", "No boxes now.", "Hiện chưa có hộp.", "暂无盲盒。"],
+    openbox: ["افتح الصندوق", "Open box", "Mở hộp", "开启盲盒"], won: ["ربحت", "You won", "Bạn trúng", "你获得了"], ok: ["تم الطلب بنجاح", "Order placed", "Đặt hàng thành công", "下单成功"],
+    farmnote: ["يتم تسليم بيانات المزرعة (ID / Token) يدويًا من الإدارة بعد الشراء.", "Farm credentials (ID / Token) are delivered manually by the admin after purchase.", "Thông tin nông trại (ID / Token) được quản trị viên giao thủ công sau khi mua.", "购买后，农场凭据（ID / Token）由管理员手动发放。"],
+    waitdel: ["بانتظار تسليم الإدارة", "Waiting for admin delivery", "Chờ quản trị viên giao", "等待管理员发放"], cancel: ["إلغاء", "Cancel", "Hủy", "取消"], close: ["إغلاق", "Close", "Đóng", "关闭"],
+    // settings
+    settings: ["الإعدادات", "Settings", "Cài đặt", "设置"], lang: ["اللغة", "Language", "Ngôn ngữ", "语言"], notifs: ["الإشعارات", "Notifications", "Thông báo", "通知"], tone: ["نغمة الإشعار", "Notification tone", "Nhạc chuông thông báo", "通知铃声"],
+    support: ["الدعم", "Support", "Hỗ trợ", "客服"], alerts: ["التنبيهات", "Alerts", "Cảnh báo", "提醒"], purchases: ["مشترياتي (المزارع)", "My purchases (farms)", "Đã mua (nông trại)", "我的购买（农场）"],
+    myorders: ["طلبات المنتجات والأدوات", "Product & tool orders", "Đơn sản phẩm & công cụ", "商品与工具订单"], chkupd: ["البحث عن تحديث", "Check for update", "Kiểm tra cập nhật", "检查更新"],
+    appver: ["إصدار التطبيق", "App version", "Phiên bản ứng dụng", "应用版本"], logout: ["تسجيل الخروج", "Sign out", "Đăng xuất", "退出登录"],
+    logoutq: ["هل أنت متأكد أنك تريد تسجيل الخروج؟", "Are you sure you want to sign out?", "Bạn có chắc muốn đăng xuất?", "确定要退出登录吗？"],
+    notifoff: ["تم إيقاف الإشعارات", "Notifications turned off", "Đã tắt thông báo", "通知已关闭"], notifon: ["تم تفعيل الإشعارات", "Notifications turned on", "Đã bật thông báo", "通知已开启"],
+    latest: ["أنت على أحدث إصدار", "You are on the latest version", "Bạn đang dùng phiên bản mới nhất", "已是最新版本"], newver: ["يتوفر إصدار جديد", "New version available", "Có phiên bản mới", "发现新版本"], updnow: ["تحديث التطبيق", "Update now", "Cập nhật ngay", "立即更新"],
+    checking: ["جارٍ البحث عن تحديث…", "Checking…", "Đang kiểm tra…", "检查中…"], nopurch: ["لا مشتريات بعد.", "No farm purchases yet.", "Chưa mua nông trại nào.", "还没有购买农场。"],
+    noprodorders: ["لا طلبات بعد.", "No product orders yet.", "Chưa có đơn sản phẩm.", "还没有商品订单。"], nonotif: ["لا تنبيهات.", "No notifications.", "Không có thông báo.", "暂无通知。"],
+    anns: ["الإعلانات", "Announcements", "Thông báo chung", "公告"], pdate: ["تاريخ الشراء", "Purchase date", "Ngày mua", "购买日期"], odate: ["تاريخ الطلب", "Order date", "Ngày đặt", "下单日期"],
+    cdata: ["بيانات المزرعة", "Farm credentials", "Thông tin nông trại", "农场凭据"], newreply: ["رد جديد من الدعم", "New reply from support", "Có phản hồi mới từ hỗ trợ", "客服有新回复"],
+    readall: ["تعليم الكل كمقروء", "Mark all read", "Đánh dấu đã đọc", "全部标为已读"], status: ["الحالة", "Status", "Trạng thái", "状态"], method: ["الطريقة", "Method", "Phương thức", "方式"],
+    date: ["التاريخ", "Date", "Ngày", "日期"], bafter: ["الرصيد بعد", "Balance after", "Số dư sau", "变动后余额"], timeline: ["المسار", "Timeline", "Tiến trình", "进度"], upproof: ["رفع إثبات الدفع", "Upload payment proof", "Tải chứng từ", "上传付款凭证"],
+    cancelreq: ["إلغاء الطلب", "Cancel request", "Hủy yêu cầu", "取消请求"], proofup: ["تم رفع الإثبات", "Proof uploaded", "Đã tải chứng từ", "凭证已上传"], expin: ["ينتهي الطلب بعد", "Expires in", "Hết hạn sau", "剩余有效时间"], min: ["دقيقة", "min", "phút", "分钟"],
+    s_tools: ["أدوات", "Tools", "Công cụ", "工具"], tones: { soft_bell: ["جرس ناعم", "Soft bell", "Chuông nhẹ", "柔和铃声"], bell: ["جرس", "Bell", "Chuông", "铃声"], marimba: ["ماريمبا", "Marimba", "Marimba", "马林巴"], harp: ["هارب", "Harp", "Đàn hạc", "竖琴"], bubble: ["فقاعة", "Bubble", "Bong bóng", "气泡"], digital: ["رقمي", "Digital", "Kỹ thuật số", "数码"], loud: ["عالٍ", "Loud", "To", "响亮"], calm: ["هادئ", "Calm", "Êm dịu", "舒缓"], ding: ["دينغ", "Ding", "Ding", "叮"], silent: ["صامت", "Silent", "Im lặng", "静音"] },
+  };
+  const xt = (k) => { const v = U[k]; return v ? Z(...v) : k; };
+  const toneName = (t) => Z(...U.tones[t]);
+  const playTone = (t) => { if (!t || t === "silent") return; try { new Audio(`/sounds/hd_${t}.wav`).play().catch(() => {}); } catch (e) {} };
+
+  /* ---------- icons ---------- */
+  const SV = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const IK = {
+    globe: SV('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+    bell: SV('<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0"/>'),
+    music: SV('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
+    head: SV('<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/><path d="M19 20c0 1-2 2-5 2"/>'),
+    home: SV('<path d="M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/>'),
+    list: SV('<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>'),
+    dl: SV('<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'),
+    out: SV('<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10" transform="translate(24 0) scale(-1 1)"/>'),
+    chv: '<svg class="chv" viewBox="0 0 24 24" fill="none" stroke="#9b9b9b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  };
+  const chvR = `<svg class="chv" viewBox="0 0 24 24" fill="none" stroke="#9b9b9b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>`;
+  const xsheet = (html) => { $("panel").innerHTML = html; $("sheet").classList.add("show"); };
+  const closeX = () => $("sheet").classList.remove("show");
+
+  /* ---------- banner + maintenance + ticker ---------- */
+  function applyTicker() {
+    const c = HD.cfg, t = $("tick"); if (!t) return;
+    const txt = c && c.banner && c.banner.on ? String(c.banner.text || "").trim() : "";
+    if (txt) { t.textContent = txt + "   •   " + txt; t.dataset.b = "1"; }
+    else if (t.dataset.b) { delete t.dataset.b; t.textContent = S[L].tick + "   •   " + S[L].tick; }
+  }
+  function applyCfg() {
+    const c = HD.cfg;
+    if (!c) return;
+    const old = document.getElementById("hdb"); if (old) old.hidden = true;
+    applyTicker();
+    let m = document.getElementById("hdm");
+    if (!m) { m = document.createElement("div"); m.id = "hdm"; m.className = "xm"; document.body.appendChild(m); }
+    if (c.maintenance.on) {
+      m.hidden = false;
+      m.innerHTML = `<div><div style="font-size:64px">🛠️</div><h2>${xt("maint")}</h2><p>${E(c.maintenance.message)}</p><button class="xbtn" data-x="retry">${xt("retry")}</button></div>`;
+    } else m.hidden = true;
+  }
+  async function loadCfg() {
+    const r = await api("config", {});
+    if (r.ok) { HD.cfg = r; applyCfg(); if (!$("app").hidden && tab == 2 && !HD.page) paintMethods(); }
+  }
+  async function refreshMe() {
+    if (!TOKEN) return;
+    const r = await api("me", { token: TOKEN });
+    if (r.ok) { ME = r; setBal(r.balances); } else if (r.error == "unauthorized") sessionOut();
+  }
+
+  /* ---------- store: admin categories ---------- */
+  async function loadHome() {
+    const r = await api("home", {});
+    if (!r.ok) return;
+    HD.rates = r.rates; HD.counts = r.counts; HD.grp = r.groups; HD.anns = r.announcements;
+    if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
+  }
+  async function loadCat() {
+    const r = await api("catalog", {});
+    if (!r.ok) return;
+    HD.cats = r.categories; HD.prods = r.products;
+    if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
+    if ($("sheet").classList.contains("show") && HD.open) openXCat(HD.open);
+  }
+  async function loadOpt() {
+    const r = await api("opt_items", {});
+    if (!r.ok) return;
+    HD.opt = r;
+    const byName = new Map(r.items.map((i) => [i.n, i]));
+    OPT.forEach((x) => { const it = byName.get(x.n); if (it) { x.p = it.p; x.sid = it.id; } else x.sid = -1; });
+    if (opt && !ready) { drawBar(); const l = $("ol"); if (l && document.activeElement && !document.activeElement.classList.contains("qn")) drawOl(); }
+  }
+  const tile = (attr, emoji, name, sub, tint) => `<div class="cc" style="--t:${tint}" ${attr}><div class="pic">${emoji}</div><h3>${name}</h3><small>${sub}</small><span class="go2"></span></div>`;
+  drawGrid = function () {
+    const g = $("cg");
+    if (!g) return;
+    const q = (term || "").toLowerCase(), s = S[L], c = HD.counts;
+    const cats = (HD.cats || []).filter((x) => !q || x.name.toLowerCase().includes(q) || HD.prods.some((p) => p.category_id == x.id && p.name.toLowerCase().includes(q)));
+    const m = (k) => !q || xt(k).toLowerCase().includes(q);
+    let h = cats.map((x) => `<div class="cc" style="--t:rgba(245,180,0,.18)" data-x="cat:${x.id}"><div class="pic">${x.image ? `<img class="xi2" src="${E(x.image)}" alt="">` : "🏪"}</div><h3>${E(x.name)}</h3><small>${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}</small><span class="go2"></span></div>`).join("");
+    if (!q || s.opt.toLowerCase().includes(q) || OPT.some((x) => x.n.toLowerCase().includes(q))) h += (c.opt ? optCard(s) : "");
+    if (c.farms && m("farms")) h += tile('data-x="farms"', "🧑‍🌾", xt("farms"), `${c.farms} ${xt("avail")}`, "rgba(255,193,7,.2)");
+    if (c.codes && m("codes")) h += tile('data-x="codes"', "🔑", xt("codes"), `${c.codes} ${xt("types")}`, "rgba(66,133,244,.16)");
+    if (c.boxes && m("boxes")) h += tile('data-x="boxes"', "🎁", xt("boxes"), `${c.boxes} ${xt("bx")}`, "rgba(156,39,176,.14)");
+    if (HD.grp && HD.grp.length && m("groups")) h += tile('data-x="groups"', "💬", xt("groups"), `${HD.grp.length}`, "rgba(76,175,80,.16)");
+    g.innerHTML = h || `<p class="empty" style="grid-column:1/-1">${xt("nocat")}</p>`;
+  };
+  function openXCat(id) {
+    const c = HD.cats.find((x) => x.id == id);
+    if (!c) return;
+    HD.open = id;
+    const ps = HD.prods.filter((p) => p.category_id == id);
+    $("panel").innerHTML = `<h2>${E(c.name)}</h2>` + (ps.length ? ps.map((p) => {
+      const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
+      const q = Math.min(HD.qty[p.id] || 1, Math.max(1, cap));
+      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("price")}: <b>${mon(p.price)}</b>${p.qty >= 0 ? ` · ${xt("qty")}: ${p.qty}` : ""}${p.pack > 1 ? ` · ${xt("pack")}: ${p.pack}` : ""}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}` +
+        (p.qty != 0 ? `<div class="xr"><button class="xs" data-x="q:${p.id}:-1">−</button><b>${q}</b><button class="xs" data-x="q:${p.id}:1">+</button><button class="xbtn" data-x="buy:${p.id}">${xt("buy")}</button></div>` : `<span class="xchip bad">${xt("sold")}</span>`) + `</div></div>`;
+    }).join("") : `<p class="empty">${xt("noprod")}</p>`);
+    $("sheet").classList.add("show");
+  }
+
+  /* ---------- confirm + purchase flow ---------- */
+  function xconfirm(o) {
+    if (!TOKEN) return;
+    o.key = idem(); HD.cf = o;
+    refreshMe().then(() => HD.cf === o && drawConfirm());
+    drawConfirm();
+  }
+  function drawConfirm() {
+    const o = HD.cf; if (!o) return;
+    const tot = cv(o.usdt), have = bal(), low = have < tot;
+    xsheet(`<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${o.extra || ""}
+      <div class="xr" style="margin:8px 0">${CURS.map((c) => `<button class="xchip ${c == HD.cur ? "on" : ""}" data-x="cc:${c}">${c}</button>`).join("")}</div>
+      <div class="line"><span>${xt("total")}</span><b>${amt(tot)}</b></div><div class="line"><span>${xt("yourbal")}</span><span>${amt(have)}</span></div><div id="xerr"></div>
+      ${low ? `<div class="xerr">${emsg({ error: "insufficient_balance" })}</div><button class="go" data-x="gotop"><span>${xt("topup")}</span></button>` : `<button class="go" id="xgo" data-x="dobuy"><span>${xt("confirm")}</span></button>`}
+      <button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
+  }
+  async function doBuy() {
+    const o = HD.cf, b = $("xgo"); if (!o || !b) return;
+    b.disabled = true;
+    try { await o.run(HD.cur, o.key); }
+    catch (r) { const e = $("xerr"); if (e) e.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; b.disabled = false; }
+  }
+  function done(order, prize) {
+    HD.cf = null;
+    xsheet(`<div class="xdone"><div class="big">${prize ? "🎁" : "✅"}</div><h2>${xt("ok")}</h2>${prize ? `<div class="xmut">${xt("won")}</div><div class="pz">${E(prize)}</div>` : ""}<div class="xmut">#${order.id} · ${amt(order.total, order.currency)}</div>
+      ${order.delivery ? `<div class="xcode">${E(order.delivery)}</div><button class="xbtn" data-x="copyv">${xt("copy")}</button>` : order.kind == "farm" ? `<div class="xmut">${xt("farmnote")}</div>` : ""}
+      <button class="go" style="margin-top:14px" data-x="closex"><span>${xt("close")}</span></button></div>`);
+    HD.copyv = order.delivery || "";
+  }
+  async function purchase(name, body, prizeOf) {
+    const r = await call(name, body);
+    if (!r.ok) throw r;
+    setBal(r.balances); done(r.order, prizeOf ? prizeOf(r.order) : null);
+    loadCat(); loadHome(); loadOpt();
+    return r;
+  }
+  function buy(id) {
+    const p = HD.prods.find((x) => x.id == id);
+    if (!p) return;
+    const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
+    const q = Math.min(HD.qty[id] || 1, cap);
+    xconfirm({ title: p.name, lines: `${xt("qty")}: ${q}`, usdt: p.price * q, run: (cur, key) => purchase("checkout", { kind: "cart", lines: [{ id: p.id, q }], currency: cur, idem_key: key }) });
+  }
+  confirmOpt = function () {
+    const s = S[L], m = sums();
+    if (!m.c) return toast(s.needsel);
+    const items = OPT.filter((x) => qty[x.id] && x.sid >= 0);
+    if (!items.length) return toast(s.needsel);
+    const usdt = items.reduce((a, x) => a + x.p * qty[x.id], 0);
+    xconfirm({ title: s.opt, lines: items.slice(0, 10).map((x) => `${E(x.n)} × ${qty[x.id]}`).join("<br>") + (items.length > 10 ? `<br>… +${items.length - 10}` : ""), usdt,
+      run: async (cur, key) => { const lines = items.map((x) => ({ id: x.sid, q: qty[x.id] })); const r = await purchase("checkout", { kind: "opt", lines, currency: cur, idem_key: key }); qty = {}; if (opt) drawOpt(); return r; } });
+  };
+
+  /* ---------- farms / codes / boxes / groups ---------- */
+  async function openFarms() {
+    xsheet(`<h2>${xt("farms")}</h2><div class="empty"><div class="xr" style="justify-content:center">…</div></div>`);
+    const r = await api("farms", {}); if (!r.ok) return closeX();
+    HD.farms = r.farms;
+    xsheet(`<h2>${xt("farms")}</h2>` + (r.farms.length ? r.farms.map((f) => `<div class="xp">${f.image ? `<img src="${E(f.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(f.name)}</b><small>Lv ${f.level}${f.descr ? " · " + E(f.descr) : ""}</small><div class="xr"><b>${mon(f.price)}</b><button class="xbtn" data-x="farmbuy:${f.id}">${xt("buy")}</button></div></div></div>`).join("") + `<p class="xmut" style="margin-top:10px">${xt("farmnote")}</p>` : `<p class="empty">${xt("nofarm")}</p>`));
+  }
+  async function openCodes() {
+    const r = await api("codes", {}); if (!r.ok) return;
+    HD.codes = r.codes;
+    xsheet(`<h2>${xt("codes")}</h2>` + (r.codes.length ? r.codes.map((c) => { const q = Math.min(HD.cq[c.id] || 1, Math.max(1, Math.min(10, c.stock))); return `<div class="xp">${c.image ? `<img src="${E(c.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(c.name)}</b><small>${E(c.descr)}</small><div><b>${mon(c.price)}</b> ${c.stock > 0 ? `<span class="xchip st-done">${xt("instock")} ${c.stock}</span>` : `<span class="xchip bad">${xt("sold")}</span>`}</div>${c.stock > 0 ? `<div class="xr"><button class="xs" data-x="cq:${c.id}:-1">−</button><b>${q}</b><button class="xs" data-x="cq:${c.id}:1">+</button><button class="xbtn" data-x="codebuy:${c.id}">${xt("buy")}</button></div>` : ""}</div></div>`; }).join("") : `<p class="empty">${xt("nocode")}</p>`));
+  }
+  async function openBoxes() {
+    const r = await api("boxes", {}); if (!r.ok) return;
+    HD.boxes = r.boxes;
+    xsheet(`<h2>${xt("boxes")}</h2>` + (r.boxes.length ? r.boxes.map((b) => `<div class="xp">${b.image ? `<img src="${E(b.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(b.name)}</b><small>${E(b.descr)}</small><div>${b.prizes.map((p) => `<span class="xchip">${E(p)}</span>`).join("")}</div><div class="xr"><b>${mon(b.price)}</b><button class="xbtn" data-x="boxbuy:${b.id}">${xt("openbox")}</button></div></div></div>`).join("") : `<p class="empty">${xt("nobox")}</p>`));
+  }
+  function openGroups() {
+    xsheet(`<h2>${xt("groups")}</h2>` + HD.grp.map((g) => `<a class="xp" href="${E(g.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">${g.image ? `<img src="${E(g.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(g.name)}</b><small>${E(g.descr)}</small></div></a>`).join(""));
+  }
+
+  /* ---------- orders tab ---------- */
+  async function loadOrders() {
+    const r = await call("orders", {});
+    if (r.ok) HD.orders = r.orders;
+    paintOrders();
+  }
+  const ordCard = (o) => {
+    const lines = (o.lines || []).map((l) => `<div class="xr sp"><span>${E(l.n)} × ${l.q}</span>${l.prize ? `<b>🎁 ${E(l.prize)}</b>` : ""}</div>`).join("");
+    return `<div class="xc"><div class="xr sp"><b>#${o.id} · ${E(o.name)}</b>${stChip(o.status)}</div><small>${E(Z(...(KIND[o.kind] || [o.kind, o.kind, o.kind, o.kind])))} · ${xt("total")}: ${amt(o.total, o.currency)} · ${fdate(o.created_at)}</small>${lines}` +
+      (o.delivery ? `<div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : o.kind == "farm" && !["done", "cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : "") + `</div>`;
+  };
+  function paintOrders() {
+    const el = $("xol");
+    if (!el) return;
+    el.innerHTML = (HD.orders || []).length ? HD.orders.map(ordCard).join("") : `<p class="empty">${xt("noorders")}</p>`;
+  }
+
+  /* ---------- wallet / top-up ---------- */
+  function paintMethods() {
+    const el = $("xw");
+    if (!el) return;
+    const ms = (HD.cfg && HD.cfg.methods) || [];
+    el.innerHTML = ms.length ? ms.map((w) => `<div class="xw ${HD.sel == w.id ? "on" : ""}" data-x="sel:${w.id}">${w.icon ? `<img src="${E(w.icon)}" alt="">` : `<div class="xph"></div>`}<div class="xwi"><b>${E(w.name)} · ${E(w.currency)}</b>${w.info ? `<small>${xt("paynum")}: <bdi dir="ltr">${E(w.info)}</bdi></small>` : ""}${w.instructions ? `<small>${E(w.instructions)}</small>` : ""}</div>${w.info ? `<button class="xbtn" data-x="copym:${w.id}">${xt("copy")}</button>` : ""}</div>`).join("") : `<p class="empty">${xt("nowal")}</p>`;
+    const m = ms.find((x) => x.id == HD.sel), a = $("xamt");
+    if (a) a.placeholder = m ? `${xt("amount")} (${m.currency})${m.min_amount ? " · min " + m.min_amount : ""}${m.max_amount ? " · max " + m.max_amount : ""}` : xt("amount");
+  }
+  const histRow = (x) => `<div class="xc" data-x="tx:${E(x.txn_id)}" style="cursor:pointer"><div class="xr sp"><b>${E(x.title || Z(...(TT[x.type] || [x.type, x.type, x.type, x.type])))}</b><b dir="ltr" style="color:${x.amount < 0 ? "#b71c1c" : "#1b6b1b"}">${x.amount > 0 ? "+" : ""}${nf(x.amount, x.currency)} ${x.currency}</b></div><small>${E(Z(...(TT[x.type] || [x.type, x.type, x.type, x.type])))} · ${fdate(x.created_at)}</small>${x.kind == "deposit" ? stChip(x.status) : ""}</div>`;
+  async function loadWalletData() {
+    await refreshMe();
+    const r = await call("wallet_history", {});
+    const el = $("xh"); if (r.ok && el) { HD.hist = r.items; el.innerHTML = r.items.length ? r.items.map(histRow).join("") : `<p class="empty">${xt("nohist")}</p>`; }
+  }
+  function drawWallet() {
+    $("view").innerHTML = wallet() + `<div class="pad"><h2>${xt("pay")}</h2><div id="xw"></div><h2 style="margin-top:18px">${xt("topup")}</h2>
+      <input class="xin" id="xamt" inputmode="decimal" placeholder="${xt("amount")}" autocomplete="off">
+      <label class="xfile"><input type="file" id="xrc" accept="image/*" hidden>${xt("pick")}</label>
+      <img id="xrp" class="xrp" alt="" hidden>
+      <button class="go" data-x="topup"><span>${xt("send")}</span></button>
+      <h2 style="margin-top:22px">${xt("hist")}</h2><div id="xh"></div></div>`;
+    HD.rc = null; paintMethods(); loadWalletData(); loadCfg();
+  }
+  function resizeImg(file, cb) {
+    const r = new FileReader();
+    r.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        const k = Math.min(1, 900 / Math.max(im.width, im.height)), c = document.createElement("canvas");
+        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+        let d = "";
+        for (const q of [0.7, 0.5, 0.35, 0.2]) { d = c.toDataURL("image/jpeg", q); if (d.length < 440000) break; }
+        cb(d.length < 450000 ? d : null);
+      };
+      im.onerror = () => cb(null);
+      im.src = r.result;
+    };
+    r.onerror = () => cb(null);
+    r.readAsDataURL(file);
+  }
+  async function submitTopup() {
+    const a = parseFloat(String($("xamt").value).replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 1632).replace(",", "."));
+    const m = ((HD.cfg && HD.cfg.methods) || []).find((x) => x.id == HD.sel);
+    if (!m || !HD.rc || !(a > 0)) return toast(xt("need"));
+    HD.dkey = HD.dkey || idem();
+    const d = await call("deposit_create", { method_id: m.id, amount: a, idem_key: HD.dkey });
+    if (!d.ok) return toast(emsg(d) + (d.min ? ` (${d.min}–${d.max || "∞"})` : ""));
+    const p = await call("deposit_proof", { order_id: d.order.id, proof: HD.rc });
+    HD.dkey = null;
+    if (p.ok) { toast(xt("topsent")); HD.rc = null; $("xamt").value = ""; $("xrp").hidden = true; loadWalletData(); } else toast(emsg(p));
+  }
+  async function openTx(id) {
+    const r = await call("transaction_get", { txn_id: id });
+    if (!r.ok) return toast(emsg(r));
+    if (r.kind == "deposit") {
+      const o = r.order, left = o.expires_at - Math.floor(Date.now() / 1000);
+      xsheet(`<h2>${E(o.txn_id)}</h2><div class="line"><span>${xt("status")}</span>${stChip(o.status)}</div><div class="line"><span>${xt("method")}</span><b>${E(o.method_name)}</b></div><div class="line"><span>${xt("amount")}</span><b>${amt(o.amount, o.currency)}</b></div>
+        ${o.credit_amount != null ? `<div class="line"><span>${Z("أُضيف للرصيد", "Credited", "Đã cộng", "已到账")}</span><b>${amt(o.credit_amount, o.currency)}</b></div>` : ""}${o.balance_after != null ? `<div class="line"><span>${xt("bafter")}</span><b>${amt(o.balance_after, o.currency)}</b></div>` : ""}
+        <div class="line"><span>${xt("date")}</span><span>${fdate(o.created_at)}</span></div>${o.reject_reason ? `<div class="xerr">${E(o.reject_reason)}</div>` : ""}
+        ${o.status == "awaiting_payment" ? `<p class="xmut">${xt("expin")} ${Math.max(0, Math.ceil(left / 60))} ${xt("min")}</p><label class="xfile"><input type="file" id="xtp" data-oid="${o.id}" data-tid="${E(o.txn_id)}" accept="image/*" hidden>${xt("upproof")}</label><button class="go" style="background:var(--field);color:var(--ink);box-shadow:none" data-x="canceldep:${o.id}"><span>${xt("cancelreq")}</span></button><div id="xerr"></div>` : ""}
+        ${r.proof ? `<img src="${E(r.proof)}" class="xrp" alt="">` : ""}<h2 style="margin-top:12px">${xt("timeline")}</h2>${r.history.map((h) => `<div class="xtn"><span>${E(Z(...((ST[h.to_status] || [h.to_status, h.to_status, h.to_status, h.to_status]).slice(0, 4))))}</span><small>${fdate(h.created_at)}</small></div>`).join("")}`);
+    } else {
+      const t = r.txn;
+      xsheet(`<h2>${E(t.txn_id)}</h2><div class="line"><span>${xt("method")}</span><b>${E(Z(...(TT[t.type] || [t.type, t.type, t.type, t.type])))}</b></div><div class="line"><span>${xt("amount")}</span><b dir="ltr">${amt(t.amount, t.currency)}</b></div><div class="line"><span>${Z("الرصيد قبل", "Before", "Trước", "之前")}</span><span>${amt(t.balance_before, t.currency)}</span></div><div class="line"><span>${xt("bafter")}</span><span>${amt(t.balance_after, t.currency)}</span></div><div class="line"><span>${xt("date")}</span><span>${fdate(t.created_at)}</span></div>${t.note ? `<p class="xmut">${E(t.note)}</p>` : ""}`);
+    }
+  }
+  function copyText(t, btn) {
+    const done = () => { if (btn) { const o = btn.textContent; btn.textContent = xt("copied"); setTimeout(() => (btn.textContent = o), 1400); } else toast(xt("copied")); };
+    const fallback = () => { const ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (e) {} ta.remove(); done(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, fallback); else fallback();
+  }
+  wallet = function () {
+    const s = S[L];
+    return `<div class="wal"><div class="wic">👛</div><div class="wi"><small>${s.bal}</small><div class="wr"><b>${nf(bal(), HD.cur)}</b><span class="cur" data-x="curnext" style="cursor:pointer">${HD.cur} ▾</span></div></div><button class="tp" data-x="top">${s.top}</button></div>`;
+  };
+
+  /* ---------- support chat ---------- */
+  function paintChat(force) {
+    const el = $("xlist");
+    if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    el.innerHTML = HD.msgs.length ? HD.msgs.map((m) => `<div class="xmg ${m.sender == "user" ? "me" : "ad"}">${E(m.body)}<small>${new Date(m.created_at * 1000).toLocaleTimeString(LOC[L], { hour: "2-digit", minute: "2-digit" })}</small></div>`).join("") : `<p class="empty">${xt("nomsg")}</p>`;
+    if (force || bottom) el.scrollTop = el.scrollHeight;
+  }
+  async function loadChat(force) {
+    const r = await call("support_list", {});
+    if (r.ok) { HD.msgs = r.messages; paintChat(force); HD.sup = 0; drawBadges(); }
+  }
+  function drawChat() {
+    $("view").innerHTML = `<div class="pad"><h2>${S[L].nav[tab]}</h2><div class="xchat" id="xlist"></div><div class="xr" style="flex-wrap:nowrap"><input class="xin" id="xmsg" maxlength="1000" placeholder="${xt("typemsg")}" autocomplete="off" style="margin:0"><button class="xbtn" data-x="send" style="height:50px">${xt("sendm")}</button></div></div>`;
+    paintChat(true); loadChat(true);
+  }
+  async function sendMsg() {
+    const i = $("xmsg"), body = i.value.trim();
+    if (!body) return;
+    i.value = "";
+    const r = await call("support_send", { body });
+    if (r.ok) loadChat(true); else { i.value = body; toast(emsg(r)); }
+  }
+
+  /* ---------- account: settings entry + sub pages ---------- */
+  const row = (icon, label, val, x, extra) => `<button class="sr" data-x="${x}"><span class="si">${icon}</span><span class="sl">${label}</span>${extra || `<span class="sv">${val ? E(val) : ""}${chvR}</span>`}</button>`;
+  const subHead = (title, back) => `<div class="oh"><button class="bk" data-x="back:${back}" aria-label="back"></button><h2>${title}</h2></div>`;
+  function drawSettings() {
+    $("view").innerHTML = subHead(xt("settings"), "acct") + `<div class="sh2">${xt("settings")}</div>
+      <div class="sg">${row(IK.globe, xt("lang"), T[L].n, "langsheet")}
+      <button class="sr" data-x="notiftoggle"><span class="si">${IK.bell}</span><span class="sl">${xt("notifs")}</span><span class="sw ${HD.notif ? "on" : ""}" id="nsw"></span></button>
+      <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
+      <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
+      ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
+      ${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      <div class="sg">${row(IK.dl, xt("chkupd"), `${xt("appver")} ${APP_VER}`, "chkupd")}</div>
+      <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
+  }
+  function subList(title, back, id) {
+    $("view").innerHTML = subHead(title, back) + `<div class="pad" style="padding-top:8px" id="${id}"></div>`;
+  }
+  async function drawFarmsPage() {
+    subList(xt("purchases"), "settings", "xpg");
+    const r = await call("orders", {}); const el = $("xpg"); if (!r.ok || !el) return;
+    const f = r.orders.filter((o) => o.kind == "farm");
+    el.innerHTML = f.length ? f.map((o) => `<div class="xc"><div class="xr sp"><b>${E(o.name)}</b>${stChip(o.status)}</div><small>${xt("pdate")}: ${fdate(o.created_at)}</small><small>${xt("price")}: ${amt(o.total, o.currency)} · #${o.id}</small>${o.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : !["cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : ""}</div>`).join("") : `<p class="empty">${xt("nopurch")}</p>`;
+    HD.orders = r.orders;
+  }
+  async function drawOrdersPage() {
+    subList(xt("myorders"), "settings", "xpg");
+    const r = await call("orders", {}); const el = $("xpg"); if (!r.ok || !el) return;
+    const f = r.orders.filter((o) => o.kind == "tool" || o.kind == "opt");
+    el.innerHTML = f.length ? f.map(ordCard).join("") : `<p class="empty">${xt("noprodorders")}</p>`;
+    HD.orders = r.orders;
+  }
+  async function drawAlertsPage() {
+    subList(xt("alerts"), "settings", "xpg");
+    const [r, a] = await Promise.all([call("notifications", {}), api("announcements", {})]); const el = $("xpg"); if (!r.ok || !el) return;
+    el.innerHTML = `<div class="xr sp"><b>${xt("alerts")}</b><button class="xbtn" data-x="readall">${xt("readall")}</button></div>` +
+      (r.items.length ? r.items.map((n) => `<div class="xc" data-x="notif:${n.id}" style="${n.is_read ? "opacity:.7" : "border-color:#E8A900"};cursor:pointer"><b>${E(L == "ar" ? n.title : n.title_en || n.title)}</b><div>${E(L == "ar" ? n.body : n.body_en || n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("") : `<p class="empty">${xt("nonotif")}</p>`) +
+      (a.ok && a.items.length ? `<h2 style="margin-top:18px">${xt("anns")}</h2>` + a.items.map((n) => `<div class="xc">${n.image ? `<img src="${E(n.image)}" style="width:100%;border-radius:14px;margin-bottom:8px" alt="">` : ""}<b>${n.pinned ? "📌 " : ""}${E(n.title)}</b><div style="white-space:pre-wrap">${E(n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("") : "");
+    call("notif_read", { all: 1 }); HD.unread = 0; drawBadges();
+  }
+  function drawPage() {
+    const p = HD.page;
+    if (p == "settings") drawSettings();
+    else if (p == "myfarms") drawFarmsPage();
+    else if (p == "myorders") drawOrdersPage();
+    else if (p == "alerts") drawAlertsPage();
+  }
+  async function checkUpdate() {
+    toast(xt("checking"));
+    await loadCfg();
+    const u = (HD.cfg && HD.cfg.update) || {};
+    const cmp = (a, b) => { const x = String(a || "0").split(".").map(Number), y = String(b || "0").split(".").map(Number); for (let i = 0; i < 4; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0 ? 1 : -1; } return 0; };
+    if (u.version && cmp(u.version, APP_VER) > 0) {
+      xsheet(`<h2>${xt("newver")} ${E(u.version)}</h2>${u.notes ? `<p class="xmut" style="white-space:pre-wrap">${E(u.notes)}</p>` : ""}${u.url ? `<a class="go" href="${E(u.url)}" target="_blank" rel="noopener" style="text-decoration:none"><span>${xt("updnow")}</span></a>` : ""}<button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
+    } else toast(xt("latest"));
+  }
+
+  /* ---------- badges + polling ---------- */
+  function drawBadges() {
+    document.querySelectorAll(".xbd").forEach((e) => e.remove());
+    const bell = document.querySelector('[data-h="b"]'); if (bell && HD.unread) bell.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.unread > 99 ? "99+" : HD.unread}</span>`);
+    const sb = document.querySelector('#nav [data-n="4"]'); if (sb && HD.sup) sb.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.sup}</span>`);
+  }
+  async function pollNotifs() {
+    if (!TOKEN || $("app").hidden) return;
+    const r = await call("notif_poll", {});
+    if (r.ok) {
+      HD.unread = r.unread;
+      if (r.last_id && r.last_id > HD.lastN) {
+        if (HD.lastN && HD.notif) { toast(L == "ar" ? r.title : r.title_en || r.title); playTone(HD.tone); }
+        HD.lastN = r.last_id; LSs("lastn", r.last_id);
+      }
+    }
+    const q = await call("support_poll", {});
+    if (q.ok) {
+      HD.sup = (tab == 3 || tab == 4) && !HD.page ? 0 : q.unread;
+      if (q.last_id && q.last_id > HD.lastS) {
+        if (HD.lastS && HD.notif && !(tab == 3 || tab == 4)) { toast(xt("newreply") + ": " + q.body); playTone(HD.tone); }
+        HD.lastS = q.last_id; LSs("lasts", q.last_id);
+      }
+    }
+    drawBadges();
+  }
+
+  /* ---------- hook into the existing app ---------- */
+  const _draw = drawShop;
+  drawShop = function () {
+    _draw();
+    drawBadges();
+    if (axe || opt) return;
+    const v = $("view");
+    if (tab == 0) { const t = v.querySelector(".tiles"); if (t) t.remove(); const f = v.querySelector(".sh .fv"); if (f) f.remove(); }
+    else if (tab == 1) { v.innerHTML = `<div class="pad"><h2>${S[L].nav[1]}</h2><div id="xol"></div></div>`; paintOrders(); loadOrders(); }
+    else if (tab == 2) drawWallet();
+    else if (tab == 3 || tab == 4) drawChat();
+    else if (tab == 5) {
+      if (HD.page) return drawPage();
+      const sel = $("lsel2");
+      if (sel) {
+        const card = sel.closest(".fc");
+        if (card) card.outerHTML = `<div class="sg" style="margin-top:0">${row((SV('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')), xt("settings"), "", "settings")}</div>`;
+      }
+    }
+  };
+  const _enter = enter;
+  enter = function () { _enter(); afterLogin(); };
+  const _leave = leave;
+  leave = function () { post({ type: "logout" }); HD.page = null; _leave(); };
+  function afterLogin() {
+    refreshMe(); loadCat(); loadHome(); loadOpt();
+    if (HD.notif) post({ type: "login", token: TOKEN, tone: HD.tone });
+    setTimeout(pollNotifs, 1500);
+  }
+  S.ar.bell = S.ar.bell || "التنبيهات";
+
+  document.addEventListener("click", async (e) => {
+    const bell = e.target.closest('[data-h="b"]');
+    if (bell && TOKEN) { e.stopImmediatePropagation(); opt = false; axe = false; tab = 5; HD.page = "alerts"; drawShop(); scrollTo(0, 0); return; }
+    const nv = e.target.closest("#nav [data-n]");
+    if (nv) HD.page = null;
+    const hp = e.target.closest('[data-h="p"]'); if (hp) HD.page = null;
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    const [a, i, d] = b.dataset.x.split(":");
+    if (a == "cat") openXCat(+i);
+    else if (a == "q") { const p = HD.prods.find((x) => x.id == i); if (p) { const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty); HD.qty[i] = Math.max(1, Math.min(cap, (HD.qty[i] || 1) + +d)); openXCat(HD.open); } }
+    else if (a == "buy") buy(+i);
+    else if (a == "top" || a == "gotop") { closeX(); HD.page = null; opt = false; axe = false; tab = 2; drawShop(); scrollTo(0, 0); }
+    else if (a == "sel") { HD.sel = +i; paintMethods(); }
+    else if (a == "copym") { e.stopPropagation(); const w = ((HD.cfg && HD.cfg.methods) || []).find((x) => x.id == i); if (w) copyText(w.info, b); }
+    else if (a == "topup") submitTopup();
+    else if (a == "send") sendMsg();
+    else if (a == "retry") loadCfg();
+    else if (a == "cc") { HD.cur = i; LSs("cur", i); drawConfirm(); setBal(ME && ME.balances); }
+    else if (a == "curnext") { HD.cur = CURS[(CURS.indexOf(HD.cur) + 1) % 3]; LSs("cur", HD.cur); setBal(ME && ME.balances); }
+    else if (a == "dobuy") doBuy();
+    else if (a == "closex") { HD.cf = null; closeX(); }
+    else if (a == "copyv") copyText(HD.copyv, b);
+    else if (a == "copyo") { const o = (HD.orders || []).find((x) => x.id == i); if (o) copyText(o.delivery, b); }
+    else if (a == "farms") openFarms();
+    else if (a == "codes") openCodes();
+    else if (a == "boxes") openBoxes();
+    else if (a == "groups") openGroups();
+    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
+    else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
+    else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
+    else if (a == "boxbuy") { const bx = HD.boxes.find((x) => x.id == i); if (bx) xconfirm({ title: bx.name, lines: Z("الجائزة تُحدَّد عشوائيًا من الخادم.", "The prize is picked randomly by the server.", "Phần thưởng được máy chủ chọn ngẫu nhiên.", "奖品由服务器随机抽取。"), usdt: bx.price, run: (cur, key) => purchase("random_buy", { id: bx.id, currency: cur, idem_key: key }, (o) => (o.lines && o.lines[0] && o.lines[0].prize) || "") }); }
+    else if (a == "tx") openTx(b.dataset.x.slice(3));
+    else if (a == "canceldep") { const r = await call("deposit_cancel", { order_id: +i }); if (r.ok) { closeX(); loadWalletData(); } else { const el = $("xerr"); if (el) el.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; } }
+    // settings
+    else if (a == "settings") { HD.page = "settings"; drawShop(); scrollTo(0, 0); }
+    else if (a == "back") { HD.page = i == "acct" ? null : i; drawShop(); scrollTo(0, 0); }
+    else if (a == "langsheet") xsheet(`<h2>${xt("lang")}</h2>` + LI.map((k) => `<button class="go" style="margin-bottom:10px;${k == L ? "" : "background:var(--field);color:var(--ink);box-shadow:none"}" data-x="setl:${k}"><span>${T[k].n}</span></button>`).join(""));
+    else if (a == "setl") { closeX(); setLang(i); }
+    else if (a == "tonesheet") { if (!HD.notif) return; xsheet(`<h2>${xt("tone")}</h2>` + TONES.map((t) => `<div class="xtn"><label style="flex:1;cursor:pointer"><input type="radio" name="tn" value="${t}" ${HD.tone == t ? "checked" : ""}> ${E(toneName(t))}</label><button class="xbtn" data-x="prev:${t}">▶</button></div>`).join("") + `<button class="go" style="margin-top:12px" data-x="closex"><span>${xt("close")}</span></button>`); }
+    else if (a == "prev") playTone(i);
+    else if (a == "notiftoggle") {
+      HD.notif = !HD.notif; LSs("notif", HD.notif);
+      const sw = $("nsw"); if (sw) sw.classList.toggle("on", HD.notif); const tr = $("trow"); if (tr) tr.style.opacity = HD.notif ? "" : ".45";
+      if (HD.notif) { post({ type: "login", token: TOKEN, tone: HD.tone }); toast(xt("notifon")); }
+      else { call("push_unregister", {}); toast(xt("notifoff")); }
+    }
+    else if (a == "gosup") { HD.page = null; tab = 4; drawShop(); scrollTo(0, 0); }
+    else if (a == "alerts") { HD.page = "alerts"; drawShop(); }
+    else if (a == "myfarms") { HD.page = "myfarms"; drawShop(); }
+    else if (a == "myorders") { HD.page = "myorders"; drawShop(); }
+    else if (a == "chkupd") checkUpdate();
+    else if (a == "readall") { await call("notif_read", { all: 1 }); drawPage(); }
+    else if (a == "notif") { call("notif_read", { id: +i }); const ref = ((HD.notifRefs || {})[i]) || ""; b.style.opacity = ".7"; }
+    else if (a == "logoutask") xsheet(`<h2>${xt("logout")}</h2><p class="xmut">${xt("logoutq")}</p><button class="go" style="background:#c52b50" data-x="logoutyes"><span>${xt("logout")}</span></button><button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
+    else if (a == "logoutyes") { closeX(); leave(); }
+  }, true);
+  document.addEventListener("change", (e) => {
+    if (e.target.id == "xrc" && e.target.files[0]) resizeImg(e.target.files[0], (d) => {
+      if (!d) return toast(emsg({}));
+      HD.rc = d; const p = $("xrp"); p.src = d; p.hidden = false;
+    });
+    else if (e.target.id == "xtp" && e.target.files[0]) {
+      const oid = +e.target.dataset.oid, tid = e.target.dataset.tid;
+      resizeImg(e.target.files[0], async (d) => {
+        if (!d) return toast(emsg({}));
+        const r = await call("deposit_proof", { order_id: oid, proof: d });
+        if (r.ok) { toast(xt("proofup")); openTx(tid); loadWalletData(); } else { const el = $("xerr"); if (el) el.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; }
+      });
+    }
+    else if (e.target.name == "tn" && e.target.checked) {
+      HD.tone = e.target.value; LSs("tone", HD.tone); playTone(HD.tone);
+      post({ type: "tone", token: TOKEN, tone: HD.tone });
+      const tr = $("trow"); if (tr) tr.innerHTML = row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet");
+    }
+  });
+  document.addEventListener("keydown", (e) => { if (e.key == "Enter" && e.target.id == "xmsg") { e.preventDefault(); sendMsg(); } });
+
+  setInterval(() => {
+    if (document.hidden) return;
+    HD.tick++;
+    if (HD.tick % 4 == 0) loadCfg();
+    if (!TOKEN || $("app").hidden) return;
+    if ((tab == 3 || tab == 4) && !axe && !opt && !HD.page) loadChat(false);
+    if (HD.tick % 3 == 0) pollNotifs();
+    if (HD.tick % 4 == 0) {
+      if (tab == 0 && !axe && !opt && !HD.page) { loadCat(); loadHome(); }
+      else if (tab == 1) loadOrders();
+      else if (tab == 2 && !HD.page) loadWalletData();
+      if (opt) loadOpt();
+    }
+  }, 5000);
+
+  loadCfg();
+  loadCat();
+  loadHome();
+  loadOpt();
+  if (TOKEN) post({ type: "login", token: TOKEN, tone: HD.tone });
+})();
