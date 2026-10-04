@@ -7,7 +7,8 @@ import { Page, s } from "@/components/app-shell";
 import { api, ApiError } from "@/lib/api";
 import { errText, tr, useLocale } from "@/lib/i18n-app";
 
-type Product = { id: number; category_id: number; name: string; image: string | null; price: number; qty: number };
+type Product = { id: number; category_id: number; name: string; image: string | null; price: number; qty: number; pack?: number; max_order?: number };
+const capOf = (p: { qty: number; max_order?: number }) => ((p.max_order ?? 0) > 0 ? Math.min(p.qty, p.max_order as number) : p.qty);
 
 export default function CategoryScreen() {
   const params = useLocalSearchParams<{ locale?: string; id?: string; name?: string }>();
@@ -70,12 +71,13 @@ export default function CategoryScreen() {
               {p.image ? <Image source={{ uri: p.image }} style={{ width: 84, height: 84, borderRadius: 12 }} contentFit="cover" /> : <View style={{ width: 84, height: 84, borderRadius: 12, backgroundColor: "#EEE" }} />}
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: "800", fontSize: 16, textAlign: rtl ? "right" : "left" }}>{p.name}</Text>
-                <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "price")}: <Text style={{ color: "#050505", fontWeight: "800" }}>{p.price}</Text> · {tr(L, "qty")}: {p.qty}</Text>
+                <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "price")}: <Text style={{ color: "#050505", fontWeight: "800" }}>{p.price}</Text> · {tr(L, "qty")}: {p.qty}{(p.pack ?? 1) > 1 ? ` · ${tr(L, "pack")}: ${p.pack}` : ""}</Text>
+                {(p.max_order ?? 0) > 0 ? <Text style={{ alignSelf: rtl ? "flex-end" : "flex-start", backgroundColor: "#FFF3CD", color: "#7A5B00", fontSize: 12, fontWeight: "700", paddingHorizontal: 10, paddingVertical: 2, borderRadius: 10, overflow: "hidden" }}>{tr(L, "limit")}: {p.max_order}</Text> : null}
                 {p.qty > 0 ? (
                   <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, marginTop: 8 }}>
                     <Pressable onPress={() => setQty((q) => ({ ...q, [p.id]: Math.max(1, n - 1) }))} style={[s.btn, { width: 36, height: 36, paddingHorizontal: 0, backgroundColor: "#EEE" }]}><Text style={{ fontSize: 20 }}>−</Text></Pressable>
                     <Text style={{ fontWeight: "800", minWidth: 24, textAlign: "center" }}>{n}</Text>
-                    <Pressable onPress={() => setQty((q) => ({ ...q, [p.id]: Math.min(p.qty, n + 1) }))} style={[s.btn, { width: 36, height: 36, paddingHorizontal: 0, backgroundColor: "#EEE" }]}><Text style={{ fontSize: 20 }}>+</Text></Pressable>
+                    <Pressable onPress={() => setQty((q) => ({ ...q, [p.id]: Math.min(capOf(p), n + 1) }))} style={[s.btn, { width: 36, height: 36, paddingHorizontal: 0, backgroundColor: "#EEE" }]}><Text style={{ fontSize: 20 }}>+</Text></Pressable>
                     <Pressable disabled={busy === p.id} onPress={() => buy(p)} style={[s.btn, { height: 38, flex: 1, opacity: busy === p.id ? 0.6 : 1 }]}><Text style={s.btnText}>{tr(L, "buy")}</Text></Pressable>
                   </View>
                 ) : (

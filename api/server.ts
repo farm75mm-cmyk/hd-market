@@ -43,6 +43,8 @@ try { await run(`ALTER TABLE users ADD COLUMN balance DOUBLE PRECISION NOT NULL 
 await run(`CREATE TABLE IF NOT EXISTS categories (id ${serial}, name TEXT NOT NULL, image TEXT, sort INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS products (id ${serial}, category_id BIGINT NOT NULL, name TEXT NOT NULL, image TEXT, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   qty INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
+try { await run(`ALTER TABLE products ADD COLUMN pack INT NOT NULL DEFAULT 1`); } catch {}
+try { await run(`ALTER TABLE products ADD COLUMN max_order INT NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS wallets (id ${serial}, name TEXT NOT NULL, icon TEXT, number TEXT NOT NULL, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS orders (id ${serial}, user_id BIGINT NOT NULL, product_id BIGINT NOT NULL, product_name TEXT NOT NULL, qty INT NOT NULL,
@@ -239,8 +241,8 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
   },
   async catalog() {
     const categories = await run(`SELECT id, name, image FROM categories ORDER BY sort, id`);
-    const products = await run(`SELECT id, category_id, name, image, price, qty FROM products WHERE active = 1 ORDER BY id`);
-    return ok({ categories, products: products.map((p) => ({ ...p, price: num(p.price), qty: num(p.qty) })) });
+    const products = await run(`SELECT id, category_id, name, image, price, qty, pack, max_order FROM products WHERE active = 1 ORDER BY id`);
+    return ok({ categories, products: products.map((p) => ({ ...p, price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order) })) });
   },
   async order_create(b) {
     const u = await authUser(b);
@@ -248,6 +250,7 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
     if (!(pid > 0) || !(qty >= 1 && qty <= 1000)) throw new Fail("invalid");
     const p = await first(`SELECT * FROM products WHERE id = $1 AND active = 1`, [pid]);
     if (!p) throw new Fail("not_found", 404);
+    if (num(p.max_order) > 0 && qty > num(p.max_order)) throw new Fail("limit_exceeded", 400, { max: num(p.max_order) });
     const total = Math.round(num(p.price) * qty * 100) / 100;
     if (!(await run(`UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING id`, [total, u.id])).length) throw new Fail("insufficient_balance", 402);
     if (!(await run(`UPDATE products SET qty = qty - $1 WHERE id = $2 AND qty >= $1 RETURNING id`, [qty, pid])).length) {
@@ -435,10 +438,10 @@ async function adminAct(act: string, f: (k: string) => string): Promise<string> 
     }
     case "cat_del": await run(`DELETE FROM products WHERE category_id = $1`, [id]); await run(`DELETE FROM categories WHERE id = $1`, [id]); return "تم حذف القسم ومنتجاته";
     case "prod_save": {
-      const name = f("name").trim().slice(0, 100), cat = Number(f("category_id")), price = Math.max(0, Number(f("price")) || 0), qty = Math.max(0, Math.floor(Number(f("qty")) || 0)), active = f("active") === "1" ? 1 : 0;
+      const name = f("name").trim().slice(0, 100), cat = Number(f("category_id")), price = Math.max(0, Number(f("price")) || 0), qty = Math.max(0, Math.floor(Number(f("qty")) || 0)), active = f("active") === "1" ? 1 : 0, pack = Math.max(1, Math.floor(Number(f("pack")) || 1)), maxo = Math.max(0, Math.floor(Number(f("max_order")) || 0));
       if (!name || !(cat > 0)) return "الاسم والقسم مطلوبان";
-      if (id > 0) { await run(`UPDATE products SET name=$1, category_id=$2, price=$3, qty=$4, active=$5 WHERE id=$6`, [name, cat, price, qty, active, id]); if (img) await run(`UPDATE products SET image = $1 WHERE id = $2`, [img, id]); }
-      else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [cat, name, img || null, price, qty, active, t]);
+      if (id > 0) { await run(`UPDATE products SET name=$1, category_id=$2, price=$3, qty=$4, active=$5, pack=$7, max_order=$8 WHERE id=$6`, [name, cat, price, qty, active, id, pack, maxo]); if (img) await run(`UPDATE products SET image = $1 WHERE id = $2`, [img, id]); }
+      else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at, pack, max_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [cat, name, img || null, price, qty, active, t, pack, maxo]);
       return "تم حفظ المنتج";
     }
     case "prod_del": await run(`DELETE FROM products WHERE id = $1`, [id]); return "تم حذف المنتج";
@@ -508,10 +511,10 @@ async function adminShell(tab: string, csrf: string, flash: string, url: URL): P
     const cats = await run(`SELECT id, name FROM categories ORDER BY sort, id`);
     const opts = (sel: any) => cats.map((c) => `<option value="${c.id}"${String(c.id) === String(sel) ? " selected" : ""}>${h(c.name)}</option>`).join("");
     if (!cats.length) return out + `<div class="box">أضف قسمًا أولًا من تبويب «الأقسام».</div></div>`;
-    out += `<div class="box"><h2>إضافة منتج</h2>${F("prod_save", `<div class="row"><input type="text" name="name" placeholder="اسم المنتج" required><select name="category_id">${opts("")}</select><input type="number" step="0.01" min="0" name="price" placeholder="السعر" style="width:110px" required><input type="number" min="0" name="qty" placeholder="العدد" style="width:90px" required><label><input type="checkbox" name="active" value="1" checked> ظاهر</label>${picker(null)}<button class="y">إضافة</button></div>`)}</div>`;
+    out += `<div class="box"><h2>إضافة عنصر</h2><p style="color:#777;font-size:13px;margin:0 0 10px">الحقول: اسم العنصر · القسم · العدد (قطع في العبوة) · الكمية المتوفرة · الحد المسموح للطلب الواحد (0 = بلا حد) · السعر · الصورة</p>${F("prod_save", `<div class="row"><input type="text" name="name" placeholder="اسم العنصر" required><select name="category_id">${opts("")}</select><input type="number" min="1" name="pack" placeholder="العدد (قطع/عبوة)" title="العدد" style="width:130px" value="1"><input type="number" min="0" name="qty" placeholder="الكمية المتوفرة" title="الكمية" style="width:130px" required><input type="number" min="0" name="max_order" placeholder="الحد المسموح (0=بلا حد)" title="الحد المسموح للطلب الواحد" style="width:170px" value="0"><input type="number" step="0.01" min="0" name="price" placeholder="السعر" style="width:110px" required><label><input type="checkbox" name="active" value="1" checked> ظاهر</label>${picker(null)}<button class="y">إضافة</button></div>`)}</div>`;
     out += `<div class="box"><h2>المنتجات</h2>`;
     for (const p of await run(`SELECT * FROM products ORDER BY id DESC LIMIT 300`)) {
-      out += F("prod_save", `${hid("id", p.id)}<div class="row" style="margin-bottom:8px"><input type="text" name="name" value="${h(p.name)}"><select name="category_id">${opts(p.category_id)}</select><input type="number" step="0.01" min="0" name="price" value="${num(p.price)}" style="width:110px"><input type="number" min="0" name="qty" value="${num(p.qty)}" style="width:90px"><label><input type="checkbox" name="active" value="1"${num(p.active) ? " checked" : ""}> ظاهر</label>${picker(p.image)}<button>حفظ</button></div>`) +
+      out += F("prod_save", `${hid("id", p.id)}<div class="row" style="margin-bottom:8px"><input type="text" name="name" value="${h(p.name)}"><select name="category_id">${opts(p.category_id)}</select><input type="number" min="1" name="pack" value="${num(p.pack) || 1}" title="العدد" style="width:90px"><input type="number" min="0" name="qty" value="${num(p.qty)}" title="الكمية" style="width:100px"><input type="number" min="0" name="max_order" value="${num(p.max_order)}" title="الحد المسموح للطلب الواحد (0=بلا حد)" style="width:100px"><input type="number" step="0.01" min="0" name="price" value="${num(p.price)}" title="السعر" style="width:110px"><label><input type="checkbox" name="active" value="1"${num(p.active) ? " checked" : ""}> ظاهر</label>${picker(p.image)}<button>حفظ</button></div>`) +
         F("prod_del", `${hid("id", p.id)}<button class="r" onclick="return confirm('حذف المنتج؟')">حذف</button>`) + `<hr style="border:0;border-top:1px solid #eee">`;
     }
     return out + `</div></div>${PICK_JS}`;

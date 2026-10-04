@@ -9,13 +9,13 @@
   const bal = () => (ME ? num(ME.balance) : 0);
 
   const X = {
-    ar: { maint: "تحت الصيانة", retry: "إعادة المحاولة", items: "عنصر", nocat: "لا توجد أقسام بعد.", noprod: "لا توجد منتجات في هذا القسم.", price: "السعر", qty: "العدد", buy: "شراء", sold: "نفد", total: "الإجمالي",
+    ar: { pack: "العدد", limit: "الحد المسموح", e_limit: "تجاوزت الحد المسموح للطلب الواحد.", maint: "تحت الصيانة", retry: "إعادة المحاولة", items: "عنصر", nocat: "لا توجد أقسام بعد.", noprod: "لا توجد منتجات في هذا القسم.", price: "السعر", qty: "العدد", buy: "شراء", sold: "نفد", total: "الإجمالي",
       confirm: "تأكيد الشراء؟", bought: "تم تقديم الطلب", e_bal: "رصيدك غير كافٍ. اشحن رصيدك أولًا.", e_stock: "الكمية غير متوفرة.", e_net: "تعذّر الاتصال بالخادم.", e_gen: "حدث خطأ. حاول مجددًا.", e_many: "طلبات كثيرة. حاول لاحقًا.",
       noorders: "لا توجد طلبات بعد.", s_new: "جديد", s_processing: "قيد التنفيذ", s_done: "مكتمل", s_cancelled: "ملغي",
       pay: "محافظ الدفع", paynum: "رقم الدفع", copy: "نسخ", copied: "تم النسخ", topup: "شحن الرصيد", amount: "المبلغ", pick: "اختيار صورة إيصال الدفع", send: "إرسال طلب الشحن",
       hist: "طلبات الشحن", nohist: "لا توجد طلبات شحن.", t_pending: "قيد المراجعة", t_approved: "تمت الموافقة", t_rejected: "مرفوض", need: "اختر المحفظة وأدخل المبلغ وأرفق صورة الإيصال.", topsent: "تم إرسال طلب الشحن وسيتم مراجعته.",
       typemsg: "اكتب رسالتك...", sendm: "إرسال", nomsg: "ابدأ المحادثة مع الدعم.", nowal: "لا توجد محافظ دفع حالياً." },
-    en: { maint: "Under maintenance", retry: "Try again", items: "items", nocat: "No sections yet.", noprod: "No products in this section.", price: "Price", qty: "Qty", buy: "Buy", sold: "Sold out", total: "Total",
+    en: { pack: "Count", limit: "Max per order", e_limit: "Over the per-order limit.", maint: "Under maintenance", retry: "Try again", items: "items", nocat: "No sections yet.", noprod: "No products in this section.", price: "Price", qty: "Qty", buy: "Buy", sold: "Sold out", total: "Total",
       confirm: "Confirm purchase?", bought: "Order placed", e_bal: "Insufficient balance. Top up first.", e_stock: "Not enough stock.", e_net: "Can't reach the server.", e_gen: "Something went wrong. Try again.", e_many: "Too many requests. Try later.",
       noorders: "No orders yet.", s_new: "New", s_processing: "Processing", s_done: "Completed", s_cancelled: "Cancelled",
       pay: "Payment wallets", paynum: "Payment number", copy: "Copy", copied: "Copied", topup: "Top up balance", amount: "Amount", pick: "Choose payment receipt image", send: "Submit top-up request",
@@ -23,7 +23,7 @@
       typemsg: "Type your message...", sendm: "Send", nomsg: "Start a conversation with support.", nowal: "No payment wallets available." },
   };
   const xt = (k) => (L === "ar" ? X.ar[k] : X.en[k]) ?? X.en[k] ?? k;
-  const errMsg = (c) => ({ insufficient_balance: xt("e_bal"), out_of_stock: xt("e_stock"), network: xt("e_net"), too_many: xt("e_many") }[c] || xt("e_gen"));
+  const errMsg = (c) => ({ insufficient_balance: xt("e_bal"), out_of_stock: xt("e_stock"), limit_exceeded: xt("e_limit"), network: xt("e_net"), too_many: xt("e_many") }[c] || xt("e_gen"));
 
   const css = document.createElement("style");
   css.textContent = `.xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#111;text-align:center;font-weight:800;padding:9px 12px;font-size:14px}
@@ -99,8 +99,9 @@
     HD.open = id;
     const ps = HD.prods.filter((p) => p.category_id == id);
     $("panel").innerHTML = `<h2>${E(c.name)}</h2>` + (ps.length ? ps.map((p) => {
-      const q = Math.min(HD.qty[p.id] || 1, Math.max(1, p.qty));
-      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("price")}: <b>${money(p.price)}</b> · ${xt("qty")}: ${p.qty}</small>` +
+      const cap = p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty;
+      const q = Math.min(HD.qty[p.id] || 1, Math.max(1, cap));
+      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("price")}: <b>${money(p.price)}</b> · ${xt("qty")}: ${p.qty}${p.pack > 1 ? ` · ${xt("pack")}: ${p.pack}` : ""}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}` +
         (p.qty > 0 ? `<div class="xr"><button class="xs" data-x="q:${p.id}:-1">−</button><b>${q}</b><button class="xs" data-x="q:${p.id}:1">+</button><button class="xbtn" data-x="buy:${p.id}">${xt("buy")}</button></div>` : `<span class="xchip bad">${xt("sold")}</span>`) + `</div></div>`;
     }).join("") : `<p class="empty">${xt("noprod")}</p>`);
     $("sheet").classList.add("show");
@@ -108,7 +109,7 @@
   async function buy(id) {
     const p = HD.prods.find((x) => x.id == id);
     if (!p) return;
-    const q = Math.min(HD.qty[id] || 1, p.qty);
+    const q = Math.min(HD.qty[id] || 1, p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
     if (!confirm(`${p.name}\n${xt("confirm")}\n${xt("qty")}: ${q}\n${xt("total")}: ${money(p.price * q)}`)) return;
     const r = await api("order_create", { token: TOKEN, product_id: id, qty: q });
     if (r.ok) { ME.balance = r.balance; HD.qty[id] = 1; toast(xt("bought")); await loadCat(); document.querySelectorAll(".wal b").forEach((el) => (el.textContent = money(bal()))); }
@@ -231,7 +232,7 @@
     if (!b) return;
     const [a, i, d] = b.dataset.x.split(":");
     if (a == "cat") openXCat(+i);
-    else if (a == "q") { const p = HD.prods.find((x) => x.id == i); if (p) { HD.qty[i] = Math.max(1, Math.min(p.qty, (HD.qty[i] || 1) + +d)); openXCat(HD.open); } }
+    else if (a == "q") { const p = HD.prods.find((x) => x.id == i); if (p) { HD.qty[i] = Math.max(1, Math.min(p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty, (HD.qty[i] || 1) + +d)); openXCat(HD.open); } }
     else if (a == "buy") buy(+i);
     else if (a == "top") { tab = 2; drawShop(); scrollTo(0, 0); }
     else if (a == "sel") { HD.sel = +i; paintWallet(); }
