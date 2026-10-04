@@ -1,132 +1,101 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Clipboard from "expo-clipboard";
-import { Image } from "expo-image";
-import * as ImageManipulator from "expo-image-manipulator";
-import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import { Page, s } from "@/components/app-shell";
-import { api, ApiError, type Wallet } from "@/lib/api";
-import { getSession } from "@/lib/auth-server";
-import { errText, tr, useLocale } from "@/lib/i18n-app";
-
-type Topup = { id: number; wallet_name: string; amount: number; status: string; note?: string | null; created_at: number };
+import { api, type HistoryItem } from "@/lib/api";
+import { tr, useLocale } from "@/lib/i18n-app";
+import { ACTIVE_DEPOSIT, CURS, CUR_META, fmtMoney, STATUS_COLOR, stamp, useCurrency, type Cur } from "@/lib/money";
 
 export default function WalletScreen() {
   const params = useLocalSearchParams<{ locale?: string }>();
   const L = useLocale(Array.isArray(params.locale) ? params.locale[0] : params.locale);
   const rtl = L === "ar";
-  const [balance, setBalance] = useState(0);
-  const [wallets, setWallets] = useState<Wallet[]>([]);
-  const [topups, setTopups] = useState<Topup[]>([]);
-  const [sel, setSel] = useState<number | null>(null);
-  const [amount, setAmount] = useState("");
-  const [receipt, setReceipt] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<number | null>(null);
+  const [cur, setCur] = useCurrency();
+  const [balances, setBalances] = useState<Record<string, number>>({ JOD: 0, IQD: 0, USDT: 0 });
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [acc, cfg, t] = await Promise.all([getSession(), api("config"), api("topups", {}, true)]);
-      if (acc) setBalance(acc.balance);
-      setWallets(cfg.wallets ?? []);
-      setTopups(t.topups ?? []);
+      const [o, h] = await Promise.all([api("wallet_overview", {}, true), api("wallet_history", {}, true)]);
+      setBalances(o.balances ?? {});
+      setItems(h.items ?? []);
     } catch {
       /* offline gate handles connectivity */
     }
   }, []);
   useEffect(() => {
     void load();
-    const id = setInterval(load, 15000);
+    const id = setInterval(load, 10000);
     return () => clearInterval(id);
   }, [load]);
 
-  const pick = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
-    if (r.canceled) return;
-    try {
-      const m = await ImageManipulator.manipulateAsync(r.assets[0].uri, [{ resize: { width: 900 } }], { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true });
-      setReceipt(`data:image/jpeg;base64,${m.base64}`);
-    } catch {
-      Alert.alert(tr(L, "err"), tr(L, "invalid"));
-    }
-  };
-
-  const copy = async (w: Wallet) => {
-    await Clipboard.setStringAsync(w.number);
-    setCopied(w.id);
-    setTimeout(() => setCopied(null), 1500);
-  };
-
-  const submit = async () => {
-    const a = Number(amount.replace(",", "."));
-    if (!sel || !receipt || !(a > 0)) return Alert.alert(tr(L, "err"), tr(L, "needAmount"));
-    setBusy(true);
-    try {
-      await api("topup_create", { wallet_id: sel, amount: a, receipt }, true);
-      setAmount("");
-      setReceipt(null);
-      Alert.alert(tr(L, "topup"), tr(L, "sent"));
-      await load();
-    } catch (e) {
-      Alert.alert(tr(L, "err"), errText(L, e instanceof ApiError ? e.code : "network"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const open = (txn: string) => router.push({ pathname: "/transaction", params: { locale: L, txn_id: txn } });
+  const active = items.filter((i) => i.kind === "deposit" && ACTIVE_DEPOSIT.includes(i.status));
+  const history = items.filter((i) => !(i.kind === "deposit" && ACTIVE_DEPOSIT.includes(i.status)));
   const al = { textAlign: rtl ? ("right" as const) : ("left" as const), writingDirection: rtl ? ("rtl" as const) : ("ltr" as const) };
+  const row = { flexDirection: rtl ? ("row-reverse" as const) : ("row" as const) };
+
+  const Row = ({ i }: { i: HistoryItem }) => {
+    const st = stamp(i.created_at);
+    const sign = i.amount > 0 ? "+" : i.amount < 0 ? "−" : "";
+    const label = i.kind === "deposit" ? `${tr(L, "type_deposit")} · ${i.title}` : `${tr(L, "type_" + i.type)}${i.title ? " · " + i.title : ""}`;
+    return (
+      <Pressable onPress={() => open(i.txn_id)} style={({ pressed }) => [{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#EEE", opacity: pressed ? 0.6 : 1 }]}>
+        <View style={[row, { justifyContent: "space-between", alignItems: "center" }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[{ fontWeight: "800", fontSize: 14 }, al]} numberOfLines={1}>{label}</Text>
+            <Text style={[s.muted, al]}>{st.date} · {st.time}</Text>
+            <Text style={[s.muted, al]} selectable={false} numberOfLines={1}>{i.txn_id}</Text>
+          </View>
+          <View style={{ alignItems: rtl ? "flex-start" : "flex-end", marginHorizontal: 8 }}>
+            <Text style={{ fontWeight: "900", fontSize: 15, color: i.amount < 0 ? "#B71C1C" : "#1B6B1B" }}>{sign}{fmtMoney(Math.abs(i.amount), i.currency)} {i.currency}</Text>
+            <Text style={[s.chip, { backgroundColor: STATUS_COLOR[i.status] ?? "#EEE", marginTop: 4 }]}>{tr(L, "st_" + i.status)}</Text>
+          </View>
+        </View>
+        {i.balance_before != null && i.balance_after != null ? (
+          <Text style={[s.muted, al, { marginTop: 4 }]}>{tr(L, "balBefore")}: {fmtMoney(i.balance_before, i.currency)} → {tr(L, "balAfter")}: {fmtMoney(i.balance_after, i.currency)}</Text>
+        ) : null}
+        {i.reject_reason ? <Text style={[{ color: "#B71C1C", fontSize: 12, marginTop: 4 }, al]}>{tr(L, "reason")}: {i.reject_reason}</Text> : null}
+      </Pressable>
+    );
+  };
+
   return (
     <Page title={tr(L, "wallet")} locale={L} right={<Pressable onPress={() => router.push({ pathname: "/orders", params: { locale: L } })}><Ionicons name="receipt-outline" size={26} color="#050505" /></Pressable>}>
-      <ScrollView contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
-        <View style={[s.card, { backgroundColor: "#000" }]}>
-          <Text style={{ color: "#BBB", ...al }}>{tr(L, "balance")}</Text>
-          <Text style={{ color: "#fff", fontSize: 34, fontWeight: "900", ...al }}>{balance.toFixed(2)}</Text>
-        </View>
-
-        <View style={s.card}>
-          <Text style={[s.h2, al]}>{tr(L, "chooseWallet")}</Text>
-          {wallets.map((w) => (
-            <Pressable key={w.id} onPress={() => setSel(w.id)} style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 12, borderWidth: 2, borderColor: sel === w.id ? "#000" : "#E4E4E4", marginBottom: 8 }}>
-              {w.icon ? <Image source={{ uri: w.icon }} style={{ width: 46, height: 46, borderRadius: 10 }} contentFit="cover" /> : <Ionicons name="wallet-outline" size={36} color="#050505" />}
-              <View style={{ flex: 1 }}>
-                <Text style={[{ fontWeight: "800", fontSize: 15 }, al]}>{w.name}</Text>
-                <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "payNumber")}: <Text selectable style={{ color: "#050505", fontWeight: "700" }}>{w.number}</Text></Text>
-              </View>
-              <Pressable onPress={() => copy(w)} style={[s.btn, { height: 38, paddingHorizontal: 12, backgroundColor: copied === w.id ? "#22C55E" : "#000" }]}>
-                <Text style={[s.btnText, { fontSize: 13 }]}>{copied === w.id ? tr(L, "copied") : tr(L, "copy")}</Text>
-              </Pressable>
+      <ScrollView contentContainerStyle={{ padding: 14 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
+        <View style={[row, { gap: 8, marginBottom: 12 }]}>
+          {CURS.map((c) => (
+            <Pressable key={c} onPress={() => setCur(c as Cur)} style={{ flex: 1, paddingVertical: 10, borderRadius: 14, borderWidth: 2, borderColor: cur === c ? "#000" : "#E4E4E4", backgroundColor: cur === c ? "#000" : "#fff", alignItems: "center" }}>
+              <Text style={{ fontSize: 18 }}>{CUR_META[c].flag}</Text>
+              <Text style={{ fontWeight: "800", fontSize: 13, color: cur === c ? "#fff" : "#050505" }}>{c === "IQD" ? "IQ MasterCard" : c}</Text>
             </Pressable>
           ))}
-          {!wallets.length && <ActivityIndicator />}
         </View>
 
-        <View style={s.card}>
-          <Text style={[s.h2, al]}>{tr(L, "topup")}</Text>
-          <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder={tr(L, "amount")} placeholderTextColor="#999" style={[s.input, al]} />
-          <Pressable onPress={pick} style={[s.btn, { backgroundColor: "#F0F0F0", marginTop: 10 }]}>
-            <Text style={[s.btnText, { color: "#050505" }]}>{tr(L, "pickReceipt")}</Text>
-          </Pressable>
-          {receipt && <Image source={{ uri: receipt }} style={{ width: "100%", height: 200, borderRadius: 12, marginTop: 10 }} contentFit="contain" />}
-          <Pressable disabled={busy} onPress={submit} style={[s.btn, { marginTop: 10, opacity: busy ? 0.6 : 1 }]}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>{tr(L, "send")}</Text>}
+        <View style={[s.card, { backgroundColor: "#000" }]}>
+          <Text style={{ color: "#BBB", ...al }}>{tr(L, "balance")} · {CUR_META[cur][rtl ? "ar" : "en"]}</Text>
+          <Text style={{ color: "#fff", fontSize: 36, fontWeight: "900", ...al }}>{fmtMoney(balances[cur] ?? 0, cur)} <Text style={{ fontSize: 16 }}>{cur}</Text></Text>
+          <View style={[row, { gap: 14, marginTop: 8, flexWrap: "wrap" }]}>
+            {CURS.filter((c) => c !== cur).map((c) => <Text key={c} style={{ color: "#999", fontSize: 12 }}>{c}: {fmtMoney(balances[c] ?? 0, c)}</Text>)}
+          </View>
+          <Pressable onPress={() => router.push({ pathname: "/topup", params: { locale: L } })} style={[s.btn, { backgroundColor: "#E8A900", marginTop: 14 }]}>
+            <Text style={[s.btnText, { color: "#111" }]}>＋ {tr(L, "topupBtn")}</Text>
           </Pressable>
         </View>
 
         <View style={s.card}>
-          <Text style={[s.h2, al]}>{tr(L, "history")}</Text>
-          {topups.map((t) => (
-            <View key={t.id} style={{ flexDirection: rtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#EEE" }}>
-              <View>
-                <Text style={{ fontWeight: "700", ...al }}>{t.amount} · {t.wallet_name}</Text>
-                {t.note ? <Text style={[s.muted, al]}>{t.note}</Text> : null}
-              </View>
-              <Text style={[s.chip, { backgroundColor: t.status === "approved" ? "#E6F4E6" : t.status === "rejected" ? "#FDE8E8" : "#FFF3CD" }]}>{tr(L, t.status)}</Text>
-            </View>
-          ))}
-          {!topups.length && <Text style={[s.muted, al]}>{tr(L, "noTopups")}</Text>}
+          <Text style={[s.h2, al]}>{tr(L, "activeTopups")}</Text>
+          {active.map((i) => <Row key={i.txn_id} i={i} />)}
+          {!active.length && <Text style={[s.muted, al]}>{tr(L, "noActive")}</Text>}
+        </View>
+
+        <View style={s.card}>
+          <Text style={[s.h2, al]}>{tr(L, "opHistory")}</Text>
+          {history.map((i) => <Row key={i.txn_id} i={i} />)}
+          {!history.length && <Text style={[s.muted, al]}>{tr(L, "noOps")}</Text>}
         </View>
       </ScrollView>
     </Page>

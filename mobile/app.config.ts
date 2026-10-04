@@ -44,7 +44,7 @@ const SOUND_FILES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital"
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "3.1.0",
+  version: "3.2.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,

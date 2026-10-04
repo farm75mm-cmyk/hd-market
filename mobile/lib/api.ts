@@ -54,5 +54,14 @@ export type AppConfig = {
   maintenance: { on: boolean; message: string };
   banner: { on: boolean; text: string };
   wallets: Wallet[];
+  methods?: PayMethod[];
+  rates?: Record<string, number>;
   update?: { version: string; url: string; notes: string; force: boolean };
 };
+
+export type PayMethod = { id: number; name: string; currency: string; icon: string | null; info: string; instructions: string; min_amount: number; max_amount: number; expiry_minutes: number };
+export type HistoryItem = {
+  kind: "deposit" | "txn"; txn_id: string; type: string; status: string; amount: number; currency: string; title: string;
+  balance_before: number | null; balance_after: number | null; reject_reason: string | null; created_at: number;
+};
+export type Notif = { id: number; kind: string; title: string; body: string; title_en: string | null; body_en: string | null; ref: string | null; is_read: number; created_at: number };

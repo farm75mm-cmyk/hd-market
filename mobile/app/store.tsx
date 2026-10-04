@@ -16,7 +16,7 @@ import {
 import { AXE_ITEMS } from "@/lib/axe-data";
 import { FOOD_ITEMS } from "@/lib/food-data";
 import { api } from "@/lib/api";
-import { getSession } from "@/lib/auth-server";
+import { fmtMoney, useCurrency } from "@/lib/money";
 import { ScreenContainer } from "@/components/screen-container";
 import {
   formatStoreClock,
@@ -142,7 +142,9 @@ export default function StoreScreen() {
   const copy = COPY[locale];
   const rtl = locale === "ar";
   const [now, setNow] = useState(() => new Date());
-  const [balance, setBalance] = useState(0);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [unread, setUnread] = useState(0);
+  const [cur] = useCurrency();
   const [serverCats, setServerCats] = useState<{ id: number; name: string; image: string | null }[]>([]);
   const [prodCount, setProdCount] = useState<Record<number, number>>({});
 
@@ -150,9 +152,9 @@ export default function StoreScreen() {
     let alive = true;
     const load = async () => {
       try {
-        const [acc, cat] = await Promise.all([getSession(), api("catalog")]);
+        const [ov, cat] = await Promise.all([api("wallet_overview", {}, true).catch(() => null), api("catalog")]);
         if (!alive) return;
-        if (acc) setBalance(acc.balance);
+        if (ov) { setBalances(ov.balances ?? {}); setUnread(ov.unread ?? 0); }
         setServerCats(cat.categories ?? []);
         const counts: Record<number, number> = {};
         for (const p of cat.products ?? []) counts[p.category_id] = (counts[p.category_id] ?? 0) + 1;
@@ -249,10 +251,15 @@ export default function StoreScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={copy.noNotifications}
-            onPress={() => Alert.alert(copy.store, copy.noNotifications)}
+            onPress={() => router.push({ pathname: "/notifications", params: { locale } })}
             style={({ pressed }) => [styles.notificationButton, pressed && styles.pressedSoft]}
           >
             <Ionicons name="notifications-outline" size={27} color="#050505" />
+            {unread > 0 ? (
+              <View style={{ position: "absolute", top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: "#C62828", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 }}>
+                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>{unread > 99 ? "99+" : unread}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
 
@@ -275,7 +282,7 @@ export default function StoreScreen() {
           style={({ pressed }) => [styles.balancePill, pressed && styles.pressedSoft]}
         >
           <Ionicons name="wallet-outline" size={22} color="#FFFFFF" />
-          <Text style={styles.balanceText}>{balance.toFixed(2)}</Text>
+          <Text style={styles.balanceText}>{fmtMoney(balances[cur] ?? 0, cur)} {cur}</Text>
         </Pressable>
         <Text style={[styles.pageTitle, rtl ? styles.textRtl : styles.textLtr]}>{copy.store}</Text>
       </View>

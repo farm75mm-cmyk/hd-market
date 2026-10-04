@@ -12,11 +12,14 @@ const now = () => Math.floor(Date.now() / 1000);
 
 // ---------- database (Postgres on Railway; SQLite only when DATABASE_URL is missing, for local tests) ----------
 type Row = Record<string, any>;
-let run: (q: string, p?: any[]) => Promise<Row[]>;
+type Q = (q: string, p?: any[]) => Promise<Row[]>;
+let run: Q;
+let withTx: <T>(fn: (q: Q) => Promise<T>) => Promise<T>;
 let isSqlite = false;
 if (env("DATABASE_URL")) {
   const sql = postgres(env("DATABASE_URL"), { max: 5, idle_timeout: 20, onnotice: () => {} });
   run = async (q, p = []) => Array.from(await sql.unsafe(q, p as any[]));
+  withTx = (fn) => sql.begin(async (tx: any) => fn(async (q, p = []) => Array.from(await tx.unsafe(q, p as any[])))) as any;
 } else {
   isSqlite = true;
   const { Database } = await import("bun:sqlite");
@@ -24,6 +27,15 @@ if (env("DATABASE_URL")) {
   run = async (q, p = []) => {
     const s = d.query(q.replace(/\$(\d+)/g, "?$1"));
     return /^\s*(select|with)|\breturning\b/i.test(q) ? (s.all(...p) as Row[]) : (s.run(...p), []);
+  };
+  let lock: Promise<any> = Promise.resolve();
+  withTx = (fn) => {
+    const t = lock.then(async () => {
+      d.run("BEGIN");
+      try { const r = await fn(run); d.run("COMMIT"); return r; } catch (e) { d.run("ROLLBACK"); throw e; }
+    });
+    lock = t.catch(() => {});
+    return t;
   };
 }
 const num = (v: any) => Number(v ?? 0);
@@ -54,6 +66,45 @@ await run(`CREATE TABLE IF NOT EXISTS topups (id ${serial}, user_id BIGINT NOT N
 await run(`CREATE TABLE IF NOT EXISTS messages (id ${serial}, user_id BIGINT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL, seen INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS push_tokens (token TEXT PRIMARY KEY, user_id BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
 try { await run(`ALTER TABLE push_tokens ADD COLUMN tone TEXT NOT NULL DEFAULT 'soft_bell'`); } catch {}
+try { await run(`ALTER TABLE orders ADD COLUMN currency TEXT NOT NULL DEFAULT 'JOD'`); } catch {}
+await run(`CREATE TABLE IF NOT EXISTS user_wallets (user_id BIGINT NOT NULL, currency TEXT NOT NULL, amount NUMERIC(20,4) NOT NULL DEFAULT 0 CHECK (amount >= 0), updated_at BIGINT NOT NULL, PRIMARY KEY (user_id, currency))`);
+await run(`CREATE TABLE IF NOT EXISTS payment_methods (id ${serial}, name TEXT NOT NULL, currency TEXT NOT NULL, icon TEXT, info TEXT NOT NULL, instructions TEXT NOT NULL DEFAULT '',
+  min_amount NUMERIC(20,4) NOT NULL DEFAULT 0, max_amount NUMERIC(20,4) NOT NULL DEFAULT 0, expiry_minutes INT NOT NULL DEFAULT 60, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS deposit_orders (id ${serial}, txn_id TEXT NOT NULL UNIQUE, user_id BIGINT NOT NULL, method_id BIGINT NOT NULL, method_name TEXT NOT NULL, currency TEXT NOT NULL,
+  amount NUMERIC(20,4) NOT NULL, paid_amount NUMERIC(20,4), credit_amount NUMERIC(20,4), rate_usdt NUMERIC(20,8) NOT NULL DEFAULT 1, status TEXT NOT NULL, reject_reason TEXT, idem_key TEXT,
+  balance_before NUMERIC(20,4), balance_after NUMERIC(20,4), admin_actor TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)`);
+await run(`CREATE UNIQUE INDEX IF NOT EXISTS deposit_idem ON deposit_orders (user_id, idem_key)`);
+await run(`CREATE TABLE IF NOT EXISTS payment_proofs (id ${serial}, order_id BIGINT NOT NULL UNIQUE, image TEXT NOT NULL, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS transactions (id ${serial}, txn_id TEXT NOT NULL UNIQUE, ref_key TEXT NOT NULL UNIQUE, user_id BIGINT NOT NULL, type TEXT NOT NULL, currency TEXT NOT NULL,
+  amount NUMERIC(20,4) NOT NULL, balance_before NUMERIC(20,4) NOT NULL, balance_after NUMERIC(20,4) NOT NULL, ref_txn_id TEXT, deposit_id BIGINT, note TEXT, actor TEXT, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS status_history (id ${serial}, order_id BIGINT NOT NULL, from_status TEXT, to_status TEXT NOT NULL, actor TEXT NOT NULL, note TEXT, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS exchange_rates (currency TEXT PRIMARY KEY, per_usdt NUMERIC(20,8) NOT NULL, updated_at BIGINT NOT NULL, updated_by TEXT)`);
+await run(`CREATE TABLE IF NOT EXISTS exchange_rate_history (id ${serial}, currency TEXT NOT NULL, old_rate NUMERIC(20,8), new_rate NUMERIC(20,8) NOT NULL, actor TEXT NOT NULL, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS notifications (id ${serial}, user_id BIGINT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, title_en TEXT, body_en TEXT, ref TEXT, is_read INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS audit_logs (id ${serial}, actor TEXT NOT NULL, action TEXT NOT NULL, entity TEXT, entity_id TEXT, details TEXT, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS reversals (id ${serial}, deposit_id BIGINT NOT NULL UNIQUE, txn_id TEXT NOT NULL, reversal_txn_id TEXT NOT NULL, amount NUMERIC(20,4) NOT NULL, currency TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, created_at BIGINT NOT NULL)`);
+await run(`CREATE INDEX IF NOT EXISTS notif_user ON notifications (user_id, id)`);
+await run(`CREATE INDEX IF NOT EXISTS dep_user ON deposit_orders (user_id, id)`);
+await run(`CREATE INDEX IF NOT EXISTS tx_user ON transactions (user_id, id)`);
+// Financial records can never be changed or deleted from SQL (enforced by the database itself).
+if (isSqlite) {
+  for (const t of ["audit_logs", "transactions", "status_history", "reversals", "payment_proofs", "exchange_rate_history"]) {
+    try { await run(`CREATE TRIGGER IF NOT EXISTS ${t}_imm_d BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, 'immutable'); END`); } catch {}
+    if (t !== "payment_proofs") try { await run(`CREATE TRIGGER IF NOT EXISTS ${t}_imm_u BEFORE UPDATE ON ${t} BEGIN SELECT RAISE(ABORT, 'immutable'); END`); } catch {}
+  }
+  try { await run(`CREATE TRIGGER IF NOT EXISTS deposit_orders_imm_d BEFORE DELETE ON deposit_orders BEGIN SELECT RAISE(ABORT, 'immutable'); END`); } catch {}
+} else {
+  try { await run(`CREATE OR REPLACE FUNCTION hd_immutable() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'immutable financial record'; END; $$ LANGUAGE plpgsql`); } catch {}
+  for (const t of ["audit_logs", "transactions", "status_history", "reversals", "exchange_rate_history"]) {
+    try { await run(`DROP TRIGGER IF EXISTS ${t}_imm ON ${t}`); await run(`CREATE TRIGGER ${t}_imm BEFORE UPDATE OR DELETE ON ${t} FOR EACH ROW EXECUTE FUNCTION hd_immutable()`); } catch {}
+  }
+  for (const t of ["payment_proofs", "deposit_orders"]) {
+    try { await run(`DROP TRIGGER IF EXISTS ${t}_imm ON ${t}`); await run(`CREATE TRIGGER ${t}_imm BEFORE DELETE ON ${t} FOR EACH ROW EXECUTE FUNCTION hd_immutable()`); } catch {}
+  }
+}
+const nowS = () => Math.floor(Date.now() / 1000);
+for (const [c, r] of [["USDT", 1], ["JOD", 0.71], ["IQD", 1310]] as [string, number][])
+  await run(`INSERT INTO exchange_rates (currency, per_usdt, updated_at, updated_by) VALUES ($1,$2,$3,'system') ON CONFLICT (currency) DO NOTHING`, [c, r, nowS()]);
 const getSet = async (k: string, d = "") => String((await first(`SELECT v FROM settings WHERE k = $1`, [k]))?.v ?? d);
 const putSet = async (k: string, v: string) => { await run(`DELETE FROM settings WHERE k = $1`, [k]); await run(`INSERT INTO settings (k, v) VALUES ($1, $2)`, [k, v]); };
 if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v1"]))) {
@@ -77,6 +128,35 @@ if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_tools_v2"]))) {
   }
   await putSet("seed_tools_v2", "1");
 }
+// ---------- one-time migration from the single-balance system ----------
+if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["mig_wallet_v1"]))) {
+  await withTx(async (q) => {
+    for (const u of await q(`SELECT id, balance FROM users WHERE balance > 0`)) {
+      const bal = Math.round(num(u.balance) * 1e4) / 1e4;
+      await q(`INSERT INTO user_wallets (user_id, currency, amount, updated_at) VALUES ($1,'JOD',$2,$3) ON CONFLICT (user_id, currency) DO NOTHING`, [u.id, bal, nowS()]);
+      await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, note, actor, created_at) VALUES ($1,$2,$3,'migration','JOD',$4,0,$4,'رصيد منقول من النظام القديم','system',$5)`, ["TX-MIG" + u.id, "mig:" + u.id, u.id, bal, nowS()]);
+      await q(`UPDATE users SET balance = 0 WHERE id = $1`, [u.id]);
+    }
+    await q(`DELETE FROM settings WHERE k = 'mig_wallet_v1'`);
+    await q(`INSERT INTO settings (k, v) VALUES ('mig_wallet_v1', '1')`);
+  });
+}
+if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["mig_methods_v1"]))) {
+  await withTx(async (q) => {
+    for (const w of await q(`SELECT * FROM wallets ORDER BY id`))
+      await q(`INSERT INTO payment_methods (name, currency, icon, info, instructions, min_amount, max_amount, expiry_minutes, active, created_at, updated_at) VALUES ($1,'JOD',$2,$3,'',0,0,60,$4,$5,$5)`, [w.name, w.icon ?? null, w.number, num(w.active) ? 1 : 0, nowS()]);
+    for (const t of await q(`SELECT * FROM topups ORDER BY id`)) {
+      const st = t.status === "approved" ? "credited" : t.status === "rejected" ? "rejected" : "proof_sent";
+      const o = await q(`INSERT INTO deposit_orders (txn_id, user_id, method_id, method_name, currency, amount, credit_amount, rate_usdt, status, reject_reason, created_at, updated_at, expires_at) VALUES ($1,$2,0,$3,'JOD',$4,$5,0.71,$6,$7,$8,$9,$9) RETURNING id`,
+        ["DEP-LEG" + t.id, t.user_id, t.wallet_name, t.amount, st === "credited" ? t.amount : null, st, t.note ?? null, t.created_at, t.updated_at]);
+      await q(`INSERT INTO payment_proofs (order_id, image, created_at) VALUES ($1,$2,$3)`, [o[0].id, t.receipt, t.created_at]);
+      await q(`INSERT INTO status_history (order_id, from_status, to_status, actor, note, created_at) VALUES ($1,NULL,$2,'system','منقول من النظام القديم',$3)`, [o[0].id, st, t.updated_at]);
+    }
+    await q(`DELETE FROM settings WHERE k = 'mig_methods_v1'`);
+    await q(`INSERT INTO settings (k, v) VALUES ('mig_methods_v1', '1')`);
+  });
+}
+const ADMIN_ACTOR = "admin:" + (env("ADMIN_USER") || "admin");
 const IMG_RE =/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
 const okImg = (v: any) => typeof v === "string" && v.length <= 450000 && IMG_RE.test(v);
 const ORDER_STATUS: Record<string, string> = { new: "جديد", processing: "قيد التنفيذ", done: "مكتمل", cancelled: "ملغي" };
@@ -99,7 +179,8 @@ const h = (s: any) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;"
 const validName = (n: string) => [...n].length >= 2 && [...n].length <= 30;
 const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 190;
 
-const payload = (u: Row) => ({ username: u.username, email: u.email, created: num(u.created_at), avatar: u.avatar ?? null, nameChangedAt: num(u.name_changed_at), balance: num(u.balance) });
+const payload = (u: Row) => ({ username: u.username, email: u.email, created: num(u.created_at), avatar: u.avatar ?? null, nameChangedAt: num(u.name_changed_at), balance: 0, balances: { JOD: 0, IQD: 0, USDT: 0 } });
+const pl = async (u: Row) => { const b = await balancesOf(u.id); return { ...payload(u), balance: b.JOD, balances: b }; };
 
 async function authUser(b: Row) {
   const t = String(b.token ?? "");
@@ -134,21 +215,140 @@ async function sendResetMail(to: string, lang: string, code: string) {
   } catch { return false; }
 }
 
+// ---------- wallet core ----------
+const CURRENCIES = ["JOD", "IQD", "USDT"];
+const DEC: Record<string, number> = { JOD: 3, IQD: 0, USDT: 2 };
+const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+const txid = (p: string) => `${p}-${rnd(6).toUpperCase()}`;
+const STATUS_AR: Record<string, string> = { awaiting_payment: "بانتظار الدفع", proof_sent: "تم إرسال إثبات الدفع", under_review: "قيد المراجعة", verifying: "قيد التحقق", approved: "تمت الموافقة", credited: "تمت إضافة الرصيد", rejected: "مرفوض", cancelled: "ملغي", expired: "منتهي الصلاحية", amount_mismatch: "مبلغ غير مطابق", reversed: "تم عكس العملية" };
+// The only allowed status transitions. Anything else is refused by the server.
+const FLOW: Record<string, string[]> = {
+  awaiting_payment: ["proof_sent", "cancelled", "expired"],
+  proof_sent: ["under_review", "verifying", "amount_mismatch", "rejected", "approved", "cancelled"],
+  under_review: ["verifying", "amount_mismatch", "rejected", "approved"],
+  verifying: ["under_review", "amount_mismatch", "rejected", "approved"],
+  amount_mismatch: ["under_review", "rejected", "approved"],
+  approved: ["credited"],
+  credited: ["reversed"],
+  rejected: [], cancelled: [], expired: [], reversed: [],
+};
+const NOTE: Record<string, [string, string, string, string]> = {
+  created: ["تم إنشاء طلب شحن", "تم إنشاء طلب الشحن {t} بقيمة {a} {c}. حوّل المبلغ ثم أرفق إثبات الدفع.", "Top-up request created", "Top-up request {t} for {a} {c} was created. Transfer the amount and upload the proof."],
+  proof_sent: ["تم استلام إثبات الدفع", "استلمنا إثبات الدفع للطلب {t}. لم تُضف أي أرصدة بعد.", "Payment proof received", "We received the payment proof for {t}. No balance has been added yet."],
+  under_review: ["طلبك قيد المراجعة", "الطلب {t} قيد المراجعة.", "Your request is under review", "Request {t} is under review."],
+  verifying: ["طلبك قيد التحقق", "الطلب {t} قيد التحقق من الدفع.", "Your request is being verified", "Request {t} is being verified."],
+  approved: ["تمت الموافقة على طلبك", "تمت الموافقة على الطلب {t}.", "Your request was approved", "Request {t} was approved."],
+  credited: ["تمت إضافة الرصيد", "تمت إضافة {a} {c} إلى محفظتك (الطلب {t}).", "Balance added", "{a} {c} was added to your wallet (request {t})."],
+  rejected: ["تم رفض الطلب", "تم رفض الطلب {t}. سبب الرفض: {r}", "Request rejected", "Request {t} was rejected. Reason: {r}"],
+  amount_mismatch: ["المبلغ غير مطابق", "المبلغ المدفوع لا يطابق المبلغ المطلوب في الطلب {t}. سيراجعه المسؤول.", "Amount mismatch", "The paid amount does not match the requested amount in request {t}. An admin will review it."],
+  expired: ["انتهت صلاحية الطلب", "انتهت صلاحية الطلب {t}. أنشئ طلبًا جديدًا إذا أردت الدفع.", "Request expired", "Request {t} has expired. Create a new request if you still want to pay."],
+  cancelled: ["تم إلغاء الطلب", "تم إلغاء الطلب {t}.", "Request cancelled", "Request {t} was cancelled."],
+  reversed: ["تم عكس العملية", "تم عكس العملية {t}. السبب: {r}", "Transaction reversed", "Transaction {t} was reversed. Reason: {r}"],
+};
+type Push = { uid: number; title: string; body: string };
+const fill = (t: string, o: Row, extra: Row) => t.replace(/\{(\w)\}/g, (_, k) => String(({ t: o.txn_id, a: extra.a ?? o.amount, c: o.currency, r: extra.r ?? "—" } as Row)[k] ?? ""));
+
+async function audit(q: Q, actor: string, action: string, entity = "", entityId: any = "", details: any = {}) {
+  await q(`INSERT INTO audit_logs (actor, action, entity, entity_id, details, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [actor, action, entity, String(entityId), JSON.stringify(details).slice(0, 2000), nowS()]);
+}
+async function notify(q: Q, pushes: Push[], o: Row, kind: string, extra: Row = {}) {
+  const n = NOTE[kind]; if (!n) return;
+  const title = n[0], body = fill(n[1], o, extra);
+  await q(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [o.user_id, kind, title, body, n[2], fill(n[3], o, extra), o.txn_id, nowS()]);
+  pushes.push({ uid: Number(o.user_id), title, body });
+}
+async function getRates(q: Q = run): Promise<Record<string, number>> {
+  const r: Record<string, number> = {};
+  for (const x of await q(`SELECT currency, per_usdt FROM exchange_rates`)) r[x.currency] = num(x.per_usdt);
+  return r;
+}
+/** price in JOD (base currency) -> amount in `cur`, rounded up to the currency's precision. */
+function fromJod(jod: number, cur: string, rt: Record<string, number>) {
+  if (cur === "JOD") return Math.ceil(jod * 1000 - 1e-6) / 1000;
+  const v = (jod / rt.JOD) * rt[cur], f = 10 ** DEC[cur];
+  return Math.ceil(v * f - 1e-6) / f;
+}
+/** Moves an order to a new status only along FLOW; the WHERE clause makes double-clicks and races harmless. */
+async function moveTo(q: Q, o: Row, to: string, actor: string, note = "", set: Row = {}): Promise<Row> {
+  if (!(FLOW[o.status] ?? []).includes(to)) throw new Fail("bad_transition", 409, { from: o.status, to });
+  const cols = Object.keys(set);
+  const r = await q(`UPDATE deposit_orders SET status = $1, updated_at = $2${cols.map((c, i) => `, ${c} = $${i + 5}`).join("")} WHERE id = $3 AND status = $4 RETURNING *`, [to, nowS(), o.id, o.status, ...cols.map((c) => set[c])]);
+  if (!r.length) throw new Fail("bad_transition", 409, { from: o.status, to });
+  await q(`INSERT INTO status_history (order_id, from_status, to_status, actor, note, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [o.id, o.status, to, actor, note.slice(0, 300), nowS()]);
+  return r[0];
+}
+const isDup = (e: any) => /unique|duplicate/i.test(String(e?.message ?? e));
+/** approved -> credited: wallet update + ledger row + status in ONE database transaction. */
+async function creditOrder(q: Q, pushes: Push[], o0: Row, actor: string, amount: number, note = ""): Promise<Row> {
+  if (!(amount > 0)) throw new Fail("invalid");
+  let o = await moveTo(q, o0, "approved", actor, note, { admin_actor: actor });
+  await notify(q, pushes, o, "approved");
+  await q(`INSERT INTO user_wallets (user_id, currency, amount, updated_at) VALUES ($1,$2,0,$3) ON CONFLICT (user_id, currency) DO NOTHING`, [o.user_id, o.currency, nowS()]);
+  const w = await q(`UPDATE user_wallets SET amount = amount + $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 RETURNING amount`, [amount, nowS(), o.user_id, o.currency]);
+  const after = num(w[0].amount), before = r4(after - amount), tid = txid("TX");
+  try {
+    await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, ref_txn_id, deposit_id, note, actor, created_at) VALUES ($1,$2,$3,'deposit',$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [tid, "dep:" + o.id, o.user_id, o.currency, amount, before, after, o.txn_id, o.id, note.slice(0, 300), actor, nowS()]);
+  } catch (e) { if (isDup(e)) throw new Fail("duplicate", 409); throw e; }
+  o = await moveTo(q, o, "credited", actor, note, { balance_before: before, balance_after: after, credit_amount: amount, admin_actor: actor });
+  await audit(q, actor, "credit_balance", "deposit_order", o.txn_id, { user: o.user_id, amount, currency: o.currency, before, after });
+  await notify(q, pushes, o, "credited", { a: amount });
+  return o;
+}
+async function reverseOrder(q: Q, pushes: Push[], o0: Row, actor: string, reason: string): Promise<Row> {
+  const amount = num(o0.credit_amount);
+  if (o0.status !== "credited" || !(amount > 0)) throw new Fail("bad_transition", 409);
+  const w = await q(`UPDATE user_wallets SET amount = amount - $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 AND amount >= $1 RETURNING amount`, [amount, nowS(), o0.user_id, o0.currency]);
+  if (!w.length) throw new Fail("insufficient_for_reversal", 409);
+  const after = num(w[0].amount), before = r4(after + amount), tid = txid("TX");
+  try {
+    await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, ref_txn_id, deposit_id, note, actor, created_at) VALUES ($1,$2,$3,'reversal',$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [tid, "rev:" + o0.id, o0.user_id, o0.currency, -amount, before, after, o0.txn_id, o0.id, reason.slice(0, 300), actor, nowS()]);
+    await q(`INSERT INTO reversals (deposit_id, txn_id, reversal_txn_id, amount, currency, reason, actor, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [o0.id, o0.txn_id, tid, amount, o0.currency, reason.slice(0, 300), actor, nowS()]);
+  } catch (e) { if (isDup(e)) throw new Fail("duplicate", 409); throw e; }
+  const o = await moveTo(q, o0, "reversed", actor, reason, { reject_reason: reason.slice(0, 300), admin_actor: actor });
+  await audit(q, actor, "reverse_deposit", "deposit_order", o.txn_id, { amount, currency: o.currency, reason, reversal_txn: tid });
+  await notify(q, pushes, o, "reversed", { r: reason });
+  return o;
+}
+async function flushPush(pushes: Push[]) { for (const p of pushes) await pushTo(p.uid, "HD Market", p.title + " — " + p.body, "notifications"); }
+async function expireStale() {
+  try {
+    for (const o of await run(`SELECT * FROM deposit_orders WHERE status = 'awaiting_payment' AND expires_at < $1 LIMIT 50`, [nowS()])) {
+      const pushes: Push[] = [];
+      try { await withTx(async (q) => { const e = await moveTo(q, o, "expired", "system", "انتهت المدة"); await audit(q, "system", "expire_deposit", "deposit_order", e.txn_id, {}); await notify(q, pushes, e, "expired"); }); await flushPush(pushes); } catch {}
+    }
+  } catch {}
+}
+setInterval(expireStale, 60000);
+const depOut = (o: Row) => ({
+  id: num(o.id), txn_id: o.txn_id, method_id: num(o.method_id), method_name: o.method_name, currency: o.currency, amount: num(o.amount),
+  paid_amount: o.paid_amount == null ? null : num(o.paid_amount), credit_amount: o.credit_amount == null ? null : num(o.credit_amount), status: o.status,
+  reject_reason: o.reject_reason ?? null, balance_before: o.balance_before == null ? null : num(o.balance_before), balance_after: o.balance_after == null ? null : num(o.balance_after),
+  created_at: num(o.created_at), updated_at: num(o.updated_at), expires_at: num(o.expires_at),
+});
+async function balancesOf(uid: any, q: Q = run) {
+  const b: Record<string, number> = { JOD: 0, IQD: 0, USDT: 0 };
+  for (const w of await q(`SELECT currency, amount FROM user_wallets WHERE user_id = $1`, [uid])) b[w.currency] = num(w.amount);
+  return b;
+}
+
 const TONES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital", "loud", "calm", "ding", "silent"];
-async function sendPush(uid: number) {
+async function pushTo(uid: number, title: string, body: string, screen: string) {
   const rows = await run(`SELECT token, tone FROM push_tokens WHERE user_id = $1`, [uid]);
   if (!rows.length) return;
   try {
     const r = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(rows.map((x) => ({ to: x.token, title: "HD Market", body: "وصل رد جديد من الدعم", data: { screen: "support" }, sound: x.tone === "silent" ? null : `hd_${x.tone}.wav`, channelId: `hd_support_${x.tone}`, priority: "high" }))),
+      body: JSON.stringify(rows.map((x) => ({ to: x.token, title, body, data: { screen }, sound: x.tone === "silent" ? null : `hd_${x.tone}.wav`, channelId: `hd_support_${x.tone}`, priority: "high" }))),
     });
     const j: any = await r.json().catch(() => ({}));
     const list: any[] = Array.isArray(j.data) ? j.data : [];
     for (let i = 0; i < list.length; i++) if (list[i]?.details?.error === "DeviceNotRegistered") await run(`DELETE FROM push_tokens WHERE token = $1`, [rows[i].token]);
   } catch {}
 }
+const sendPush = (uid: number) => pushTo(uid, "HD Market", "وصل رد جديد من الدعم", "support");
 
 // ---------- API ----------
 const API: Record<string, (b: Row) => Promise<Response>> = {
@@ -181,9 +381,9 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
       throw new Fail("wrong_password", 401);
     }
     await run(`UPDATE users SET failed = 0, locked_until = 0, last_login = $1 WHERE id = $2`, [t, u.id]);
-    return ok({ token: await makeToken(u.id), ...payload(u) });
+    return ok({ token: await makeToken(u.id), ...(await pl(u)) });
   },
-  async me(b) { return ok(payload(await authUser(b))); },
+  async me(b) { return ok(await pl(await authUser(b))); },
   async logout(b) {
     const t = String(b.token ?? "");
     if (/^[a-f0-9]{64}$/.test(t)) {
@@ -210,7 +410,7 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
       if (av !== null && (typeof av !== "string" || av.length > 400000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(av))) throw new Fail("invalid_avatar");
       await run(`UPDATE users SET avatar = $1 WHERE id = $2`, [av, u.id]);
     }
-    return ok(payload((await first(`SELECT * FROM users WHERE id = $1`, [u.id]))!));
+    return ok(await pl((await first(`SELECT * FROM users WHERE id = $1`, [u.id]))!));
   },
   async forgot(b) {
     const email = String(b.email ?? "").trim().toLowerCase(), lang = String(b.lang ?? "ar");
@@ -254,11 +454,13 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
   },
 
   async config() {
-    const wallets = await run(`SELECT id, name, icon, number FROM wallets WHERE active = 1 ORDER BY id`);
+    const methods = (await run(`SELECT id, name, currency, icon, info, instructions, min_amount, max_amount, expiry_minutes FROM payment_methods WHERE active = 1 ORDER BY id`))
+      .map((m) => ({ ...m, id: num(m.id), min_amount: num(m.min_amount), max_amount: num(m.max_amount), expiry_minutes: num(m.expiry_minutes) }));
     return ok({
       maintenance: { on: (await getSet("maint_on")) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
       banner: { on: (await getSet("banner_on")) === "1", text: await getSet("banner_text") },
-      wallets,
+      wallets: methods.map((m) => ({ id: m.id, name: m.name, icon: m.icon, number: m.info })),
+      methods, rates: await getRates(),
       update: { version: (await getSet("upd_version")) || env("UPDATE_VERSION"), url: (await getSet("upd_url")) || env("UPDATE_URL"), notes: (await getSet("upd_notes")) || env("UPDATE_NOTES"), force: ((await getSet("upd_force")) || env("UPDATE_FORCE")) === "1" },
     });
   },
@@ -271,35 +473,175 @@ const API: Record<string, (b: Row) => Promise<Response>> = {
     const u = await authUser(b);
     const pid = Number(b.product_id), qty = Math.floor(Number(b.qty));
     if (!(pid > 0) || !(qty >= 1 && qty <= 1000)) throw new Fail("invalid");
+    const cur = CURRENCIES.includes(String(b.currency)) ? String(b.currency) : "JOD";
     const p = await first(`SELECT * FROM products WHERE id = $1 AND active = 1`, [pid]);
     if (!p) throw new Fail("not_found", 404);
     if (num(p.max_order) > 0 && qty > num(p.max_order)) throw new Fail("limit_exceeded", 400, { max: num(p.max_order) });
-    const total = Math.round(num(p.price) * qty * 100) / 100;
-    if (!(await run(`UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING id`, [total, u.id])).length) throw new Fail("insufficient_balance", 402);
-    if (!(await run(`UPDATE products SET qty = qty - $1 WHERE id = $2 AND qty >= $1 RETURNING id`, [qty, pid])).length) {
-      await run(`UPDATE users SET balance = balance + $1 WHERE id = $2`, [total, u.id]);
-      throw new Fail("out_of_stock", 409);
-    }
-    await run(`INSERT INTO orders (user_id, product_id, product_name, qty, total, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'new',$6,$6)`, [u.id, pid, p.name, qty, total, now()]);
-    return ok({ balance: num((await first(`SELECT balance FROM users WHERE id = $1`, [u.id]))?.balance) });
+    const total = fromJod(num(p.price) * qty, cur, await getRates());
+    const after = await withTx(async (q) => {
+      const w = await q(`UPDATE user_wallets SET amount = amount - $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 AND amount >= $1 RETURNING amount`, [total, nowS(), u.id, cur]);
+      if (!w.length) throw new Fail("insufficient_balance", 402);
+      if (!(await q(`UPDATE products SET qty = qty - $1 WHERE id = $2 AND qty >= $1 RETURNING id`, [qty, pid])).length) throw new Fail("out_of_stock", 409);
+      const o = await q(`INSERT INTO orders (user_id, product_id, product_name, qty, total, status, created_at, updated_at, currency) VALUES ($1,$2,$3,$4,$5,'new',$6,$6,$7) RETURNING id`, [u.id, pid, p.name, qty, total, nowS(), cur]);
+      const a = num(w[0].amount);
+      await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, note, actor, created_at) VALUES ($1,$2,$3,'purchase',$4,$5,$6,$7,$8,$9,$10)`,
+        [txid("TX"), "pur:" + o[0].id, u.id, cur, -total, r4(a + total), a, `${p.name} × ${qty}`, "user:" + u.id, nowS()]);
+      return a;
+    });
+    return ok({ balance: after, currency: cur, total });
   },
   async orders(b) {
     const u = await authUser(b);
-    return ok({ orders: (await run(`SELECT id, product_name, qty, total, status, created_at FROM orders WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id])).map((o) => ({ ...o, total: num(o.total), qty: num(o.qty), created_at: num(o.created_at) })) });
+    return ok({ orders: (await run(`SELECT id, product_name, qty, total, status, created_at, currency FROM orders WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id])).map((o) => ({ ...o, total: num(o.total), qty: num(o.qty), created_at: num(o.created_at) })) });
   },
+
+  // ----- wallet / deposits -----
+  async wallet_overview(b) {
+    const u = await authUser(b);
+    await expireStale();
+    const unread = await count(`SELECT COUNT(*) c FROM notifications WHERE user_id = $1 AND is_read = 0`, [u.id]);
+    return ok({ balances: await balancesOf(u.id), rates: await getRates(), unread });
+  },
+  async deposit_create(b) {
+    const u = await authUser(b);
+    await expireStale();
+    const m = await first(`SELECT * FROM payment_methods WHERE id = $1 AND active = 1`, [Number(b.method_id)]);
+    if (!m) throw new Fail("not_found", 404);
+    const amount = r4(Number(b.amount));
+    if (!(amount > 0) || !Number.isFinite(amount)) throw new Fail("invalid");
+    if (amount < num(m.min_amount) || (num(m.max_amount) > 0 && amount > num(m.max_amount))) throw new Fail("out_of_limits", 400, { min: num(m.min_amount), max: num(m.max_amount) });
+    const idem = String(b.idem_key ?? "").slice(0, 64) || null;
+    if (idem) { const ex = await first(`SELECT * FROM deposit_orders WHERE user_id = $1 AND idem_key = $2`, [u.id, idem]); if (ex) return ok({ order: depOut(ex), duplicate: true }); }
+    if ((await count(`SELECT COUNT(*) c FROM deposit_orders WHERE user_id = $1 AND status = 'awaiting_payment'`, [u.id])) >= 5) throw new Fail("too_many", 429);
+    if ((await count(`SELECT COUNT(*) c FROM deposit_orders WHERE user_id = $1 AND created_at > $2`, [u.id, nowS() - 3600])) >= 20) throw new Fail("too_many", 429);
+    const rt = await getRates();
+    const pushes: Push[] = [];
+    try {
+      const o = await withTx(async (q) => {
+        const r = (await q(`INSERT INTO deposit_orders (txn_id, user_id, method_id, method_name, currency, amount, rate_usdt, status, idem_key, created_at, updated_at, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'awaiting_payment',$8,$9,$9,$10) RETURNING *`,
+          [txid("DEP"), u.id, m.id, m.name, m.currency, amount, rt[m.currency] ?? 1, idem, nowS(), nowS() + Math.max(1, num(m.expiry_minutes)) * 60]))[0];
+        await q(`INSERT INTO status_history (order_id, from_status, to_status, actor, note, created_at) VALUES ($1,NULL,'awaiting_payment','user:' || $2,'',$3)`, [r.id, String(u.id), nowS()]);
+        await audit(q, "user:" + u.id, "create_deposit", "deposit_order", r.txn_id, { amount, currency: m.currency, method: m.name, rate_usdt: rt[m.currency] });
+        await notify(q, pushes, r, "created");
+        return r;
+      });
+      await flushPush(pushes);
+      return ok({ order: depOut(o) });
+    } catch (e) {
+      if (isDup(e) && idem) { const ex = await first(`SELECT * FROM deposit_orders WHERE user_id = $1 AND idem_key = $2`, [u.id, idem]); if (ex) return ok({ order: depOut(ex), duplicate: true }); }
+      throw e;
+    }
+  },
+  async deposit_proof(b) {
+    const u = await authUser(b);
+    await expireStale();
+    if (!okImg(b.proof)) throw new Fail("invalid");
+    const o = await first(`SELECT * FROM deposit_orders WHERE id = $1 AND user_id = $2`, [Number(b.order_id), u.id]);
+    if (!o) throw new Fail("not_found", 404);
+    if (o.status !== "awaiting_payment") { if (await first(`SELECT 1 FROM payment_proofs WHERE order_id = $1`, [o.id])) return ok({ order: depOut(o), duplicate: true }); throw new Fail("bad_transition", 409, { from: o.status }); }
+    const pushes: Push[] = [];
+    try {
+      const n = await withTx(async (q) => {
+        await q(`INSERT INTO payment_proofs (order_id, image, created_at) VALUES ($1,$2,$3)`, [o.id, b.proof, nowS()]);
+        const r = await moveTo(q, o, "proof_sent", "user:" + u.id, "رفع إثبات الدفع");
+        await audit(q, "user:" + u.id, "upload_proof", "deposit_order", r.txn_id, {});
+        await notify(q, pushes, r, "proof_sent");
+        return r;
+      });
+      await flushPush(pushes);
+      return ok({ order: depOut(n) });
+    } catch (e) {
+      if (isDup(e)) return ok({ order: depOut((await first(`SELECT * FROM deposit_orders WHERE id = $1`, [o.id]))!), duplicate: true });
+      throw e;
+    }
+  },
+  async deposit_cancel(b) {
+    const u = await authUser(b);
+    const o = await first(`SELECT * FROM deposit_orders WHERE id = $1 AND user_id = $2`, [Number(b.order_id), u.id]);
+    if (!o) throw new Fail("not_found", 404);
+    if (o.status === "cancelled") return ok({ order: depOut(o) });
+    if (o.status !== "awaiting_payment") throw new Fail("bad_transition", 409, { from: o.status });
+    const pushes: Push[] = [];
+    const n = await withTx(async (q) => {
+      const r = await moveTo(q, o, "cancelled", "user:" + u.id, "إلغاء من المستخدم");
+      await audit(q, "user:" + u.id, "cancel_deposit", "deposit_order", r.txn_id, {});
+      await notify(q, pushes, r, "cancelled");
+      return r;
+    });
+    await flushPush(pushes);
+    return ok({ order: depOut(n) });
+  },
+  async wallet_history(b) {
+    const u = await authUser(b);
+    await expireStale();
+    const deps = await run(`SELECT * FROM deposit_orders WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id]);
+    const txs = await run(`SELECT * FROM transactions WHERE user_id = $1 AND type <> 'deposit' ORDER BY id DESC LIMIT 100`, [u.id]);
+    const items = [
+      ...deps.map((o) => ({ kind: "deposit", txn_id: o.txn_id, type: "deposit", status: o.status, amount: num(o.credit_amount ?? o.amount), currency: o.currency, title: o.method_name, balance_before: o.balance_before == null ? null : num(o.balance_before), balance_after: o.balance_after == null ? null : num(o.balance_after), reject_reason: o.reject_reason ?? null, created_at: num(o.created_at) })),
+      ...txs.map((t) => ({ kind: "txn", txn_id: t.txn_id, type: t.type, status: "done", amount: num(t.amount), currency: t.currency, title: t.note ?? "", balance_before: num(t.balance_before), balance_after: num(t.balance_after), reject_reason: null, created_at: num(t.created_at) })),
+    ].sort((x, y) => y.created_at - x.created_at);
+    return ok({ items });
+  },
+  async transaction_get(b) {
+    const u = await authUser(b);
+    const id = String(b.txn_id ?? "");
+    if (id.startsWith("DEP-")) {
+      const o = await first(`SELECT * FROM deposit_orders WHERE txn_id = $1 AND user_id = $2`, [id, u.id]);
+      if (!o) throw new Fail("not_found", 404);
+      const hist = await run(`SELECT from_status, to_status, actor, note, created_at FROM status_history WHERE order_id = $1 ORDER BY id`, [o.id]);
+      const proof = await first(`SELECT image FROM payment_proofs WHERE order_id = $1`, [o.id]);
+      return ok({ kind: "deposit", order: { ...depOut(o), user_id: num(o.user_id), rate_usdt: num(o.rate_usdt) }, proof: proof?.image ?? null, history: hist.map((h) => ({ ...h, actor: String(h.actor).startsWith("admin:") ? "admin" : String(h.actor).startsWith("user:") ? "user" : "system", created_at: num(h.created_at) })) });
+    }
+    const t = await first(`SELECT * FROM transactions WHERE txn_id = $1 AND user_id = $2`, [id, u.id]);
+    if (!t) throw new Fail("not_found", 404);
+    return ok({ kind: "txn", txn: { txn_id: t.txn_id, type: t.type, currency: t.currency, amount: num(t.amount), balance_before: num(t.balance_before), balance_after: num(t.balance_after), ref_txn_id: t.ref_txn_id ?? null, note: t.note ?? "", user_id: num(t.user_id), created_at: num(t.created_at) } });
+  },
+  // legacy endpoints so older app builds / the web app keep working
   async topup_create(b) {
     const u = await authUser(b);
-    const amount = Math.round(Number(b.amount) * 100) / 100, wid = Number(b.wallet_id);
-    if (!(amount > 0 && amount <= 10000000) || !okImg(b.receipt)) throw new Fail("invalid");
-    const w = await first(`SELECT * FROM wallets WHERE id = $1 AND active = 1`, [wid]);
-    if (!w) throw new Fail("not_found", 404);
-    if ((await count(`SELECT COUNT(*) c FROM topups WHERE user_id = $1 AND status = 'pending'`, [u.id])) >= 5) throw new Fail("too_many", 429);
-    await run(`INSERT INTO topups (user_id, wallet_id, wallet_name, amount, receipt, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'pending',$6,$6)`, [u.id, wid, w.name, amount, b.receipt, now()]);
+    const m = await first(`SELECT * FROM payment_methods WHERE id = $1 AND active = 1`, [Number(b.wallet_id)]);
+    if (!m) throw new Fail("not_found", 404);
+    const amount = r4(Number(b.amount));
+    if (!(amount > 0) || !okImg(b.receipt)) throw new Fail("invalid");
+    if (amount < num(m.min_amount) || (num(m.max_amount) > 0 && amount > num(m.max_amount))) throw new Fail("out_of_limits", 400, { min: num(m.min_amount), max: num(m.max_amount) });
+    if ((await count(`SELECT COUNT(*) c FROM deposit_orders WHERE user_id = $1 AND status IN ('awaiting_payment','proof_sent','under_review','verifying')`, [u.id])) >= 5) throw new Fail("too_many", 429);
+    const rt = await getRates(), pushes: Push[] = [];
+    await withTx(async (q) => {
+      const r = (await q(`INSERT INTO deposit_orders (txn_id, user_id, method_id, method_name, currency, amount, rate_usdt, status, created_at, updated_at, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'awaiting_payment',$8,$8,$9) RETURNING *`,
+        [txid("DEP"), u.id, m.id, m.name, m.currency, amount, rt[m.currency] ?? 1, nowS(), nowS() + 3600]))[0];
+      await q(`INSERT INTO status_history (order_id, from_status, to_status, actor, note, created_at) VALUES ($1,NULL,'awaiting_payment','user:' || $2,'',$3)`, [r.id, String(u.id), nowS()]);
+      await q(`INSERT INTO payment_proofs (order_id, image, created_at) VALUES ($1,$2,$3)`, [r.id, b.receipt, nowS()]);
+      const n = await moveTo(q, r, "proof_sent", "user:" + u.id, "رفع إثبات الدفع");
+      await audit(q, "user:" + u.id, "create_deposit", "deposit_order", n.txn_id, { amount, currency: m.currency, legacy: true });
+      await notify(q, pushes, n, "proof_sent");
+    });
+    await flushPush(pushes);
     return ok();
   },
   async topups(b) {
     const u = await authUser(b);
-    return ok({ topups: (await run(`SELECT id, wallet_name, amount, status, note, created_at FROM topups WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id])).map((t) => ({ ...t, amount: num(t.amount), created_at: num(t.created_at) })) });
+    const map = (st: string) => (st === "credited" || st === "approved" ? "approved" : ["rejected", "cancelled", "expired", "reversed"].includes(st) ? "rejected" : "pending");
+    return ok({ topups: (await run(`SELECT * FROM deposit_orders WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id])).map((o) => ({ id: num(o.id), wallet_name: o.method_name, amount: num(o.amount), status: map(o.status), note: o.reject_reason ?? null, created_at: num(o.created_at) })) });
+  },
+
+  // ----- notifications -----
+  async notifications(b) {
+    const u = await authUser(b);
+    const rows = await run(`SELECT id, kind, title, body, title_en, body_en, ref, is_read, created_at FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id]);
+    return ok({ items: rows.map((n) => ({ ...n, id: num(n.id), is_read: num(n.is_read), created_at: num(n.created_at) })), unread: await count(`SELECT COUNT(*) c FROM notifications WHERE user_id = $1 AND is_read = 0`, [u.id]) });
+  },
+  async notif_read(b) {
+    const u = await authUser(b);
+    if (b.all) await run(`UPDATE notifications SET is_read = 1 WHERE user_id = $1`, [u.id]);
+    else await run(`UPDATE notifications SET is_read = 1 WHERE user_id = $1 AND id = $2`, [u.id, Number(b.id)]);
+    return ok();
+  },
+  async notif_poll(b) {
+    const u = await authUser(b);
+    await expireStale();
+    const r = await first(`SELECT COUNT(*) c, MAX(id) m FROM notifications WHERE user_id = $1 AND is_read = 0`, [u.id]);
+    const last = r && num(r.m) > 0 ? await first(`SELECT title, body, title_en, body_en FROM notifications WHERE id = $1`, [r.m]) : undefined;
+    return ok({ unread: num(r?.c), last_id: num(r?.m), title: last?.title ?? "", body: last?.body ?? "", title_en: last?.title_en ?? "", body_en: last?.body_en ?? "" });
   },
   async support_send(b) {
     const u = await authUser(b);
@@ -388,6 +730,7 @@ async function admin(req: Request): Promise<Response> {
     { const fl = await adminAct(act, f); if (fl) flash = fl; }
     const t = id > 0 ? await first(`SELECT * FROM users WHERE id = $1`, [id]) : undefined;
     if (t) {
+      if (["ban", "unban", "unlock", "noavatar", "resetpw", "delete"].includes(act)) await audit(run, ADMIN_ACTOR, "user_" + act, "user", id, { username: t.username });
       if (act === "ban") { await run(`UPDATE users SET status = 'banned' WHERE id = $1`, [id]); await run(`DELETE FROM tokens WHERE user_id = $1`, [id]); flash = `تم حظر ${t.username}`; }
       else if (act === "unban") { await run(`UPDATE users SET status = 'active' WHERE id = $1`, [id]); flash = `تم رفع الحظر عن ${t.username}`; }
       else if (act === "unlock") { await run(`UPDATE users SET failed = 0, locked_until = 0 WHERE id = $1`, [id]); flash = `تم فتح قفل ${t.username}`; }
@@ -435,7 +778,9 @@ async function admin(req: Request): Promise<Response> {
   const card = (l: string, v: number) => `<div class="card"><small>${l}</small><b>${v}</b></div>`;
   out += `<div class="cards">${card("إجمالي المستخدمين", total)}${card("سجّلوا اليوم", today)}${card("آخر 7 أيام", week)}${card("دخلوا خلال 24 ساعة", online)}${card("لديهم صورة", withAv)}${card("محظورون", banned)}</div>`;
   out += `<div class="box"><h2>التسجيلات آخر 14 يومًا</h2><div class="bars" dir="ltr">${days.map(([, n]) => `<div style="height:${Math.max(3, Math.round((n / max) * 100))}%"><span>${n}</span></div>`).join("")}</div><div class="lbl" dir="ltr">${days.map(([d]) => `<span>${d}</span>`).join("")}</div></div>`;
-  out += `<div class="box"><h2>المستخدمون (${matches})</h2><form method="get" style="display:flex;gap:8px;margin-bottom:12px"><input type="text" name="q" value="${h(q)}" placeholder="بحث بالاسم أو البريد"><button>بحث</button></form><table><tr><th></th><th>الاسم</th><th>البريد</th><th>الحالة</th><th>تسجيل</th><th>آخر دخول</th><th>إجراءات</th></tr>`;
+  out += `<div class="box"><h2>المستخدمون (${matches})</h2><form method="get" style="display:flex;gap:8px;margin-bottom:12px"><input type="text" name="q" value="${h(q)}" placeholder="بحث بالاسم أو البريد"><button>بحث</button></form><table><tr><th></th><th>الاسم</th><th>البريد</th><th>الأرصدة</th><th>الحالة</th><th>تسجيل</th><th>آخر دخول</th><th>إجراءات</th></tr>`;
+  const wl: Record<string, Row> = {};
+  if (rows.length) for (const w of await run(`SELECT user_id, currency, amount FROM user_wallets WHERE user_id IN (${rows.map((r) => Number(r.id)).join(",")})`)) (wl[w.user_id] ??= {})[w.currency] = num(w.amount);
   for (const r of rows) {
     const locked = num(r.locked_until) > t0, banned = r.status === "banned";
     const av = r.avatar ? `<img src="${h(r.avatar)}" alt="">` : h([...String(r.username)][0]?.toUpperCase());
@@ -443,18 +788,18 @@ async function admin(req: Request): Promise<Response> {
     const acts = (banned ? btn("unban", r.id, "رفع الحظر", "y") : btn("ban", r.id, "حظر", "g", "حظر هذا المستخدم؟")) +
       (locked || num(r.failed) > 0 ? btn("unlock", r.id, "فتح القفل") : "") + btn("resetpw", r.id, "كلمة مرور مؤقتة", "g", "إنشاء كلمة مرور مؤقتة وتسجيل خروجه؟") +
       (r.avatar ? btn("noavatar", r.id, "حذف الصورة") : "") + btn("delete", r.id, "حذف", "r", "حذف الحساب نهائيًا؟");
-    out += `<tr><td><span class="av">${av}</span></td><td>${h(r.username)}</td><td dir="ltr" style="text-align:start">${h(r.email)}</td><td>${st}</td><td>${fmt(r.created_at)}</td><td>${fmt(r.last_login)}</td><td><div class="acts">${acts}</div></td></tr>`;
+    out += `<tr><td><span class="av">${av}</span></td><td>${h(r.username)}</td><td dir="ltr" style="text-align:start">${h(r.email)}</td><td dir="ltr" style="text-align:start;font-size:12px">${CURRENCIES.map((c) => `${c} ${num(wl[r.id]?.[c])}`).join("<br>")}</td><td>${st}</td><td>${fmt(r.created_at)}</td><td>${fmt(r.last_login)}</td><td><div class="acts">${acts}</div></td></tr>`;
   }
-  if (!rows.length) out += `<tr><td colspan="7" style="text-align:center;color:#777;padding:24px">لا يوجد مستخدمون.</td></tr>`;
+  if (!rows.length) out += `<tr><td colspan="8" style="text-align:center;color:#777;padding:24px">لا يوجد مستخدمون.</td></tr>`;
   out += `</table><div class="pg">${Array.from({ length: Math.min(pages, 30) }, (_, i) => `<a class="${i + 1 === pageNo ? "on" : ""}" href="?pg=${i + 1}${q ? "&q=" + encodeURIComponent(q) : ""}">${i + 1}</a>`).join("")}</div></div></div>`;
   return html("لوحة التحكم", out);
 }
 // ---------- admin: extra sections ----------
-const TABS: [string, string][] = [["users", "المستخدمون"], ["orders", "الطلبات"], ["topups", "طلبات الشحن"], ["categories", "الأقسام"], ["products", "المنتجات"], ["wallets", "محافظ الدفع"], ["support", "الدعم"], ["settings", "الصيانة والشريط"]];
+const TABS: [string, string][] = [["users", "المستخدمون"], ["orders", "الطلبات"], ["deposits", "طلبات الشحن"], ["categories", "الأقسام"], ["products", "المنتجات"], ["methods", "طرق الدفع"], ["rates", "أسعار الصرف"], ["ledger", "السجل المالي"], ["support", "الدعم"], ["settings", "الصيانة والتحديث"]];
 async function adminNav(cur: string) {
   const badge: Record<string, number> = {
     orders: await count(`SELECT COUNT(*) c FROM orders WHERE status = 'new'`),
-    topups: await count(`SELECT COUNT(*) c FROM topups WHERE status = 'pending'`),
+    deposits: await count(`SELECT COUNT(*) c FROM deposit_orders WHERE status IN ('proof_sent','amount_mismatch')`),
     support: await count(`SELECT COUNT(*) c FROM messages WHERE sender = 'user' AND seen = 0`),
   };
   return `<nav class="tabs">${TABS.map(([k, l]) => `<a class="${k === cur ? "on" : ""}" href="/admin?tab=${k}">${l}${badge[k] ? `<i>${badge[k]}</i>` : ""}</a>`).join("")}</nav>`;
@@ -468,6 +813,10 @@ async function adminAct(act: string, f: (k: string) => string): Promise<string> 
   const id = Number(f("id")), t = now();
   const img = f("image");
   if (img && !okImg(img)) return "الصورة غير صالحة (jpeg/png/webp وحجم أصغر).";
+  if (["cat_save", "cat_del", "prod_save", "prod_del", "set_save", "support_reply"].includes(act)) {
+    const det: Row = {}; for (const k of ["id", "name", "sort", "category_id", "price", "qty", "pack", "max_order", "active", "uid", "maint_on", "banner_on", "upd_version", "upd_url", "upd_force"]) if (f(k) !== "") det[k] = f(k);
+    await audit(run, ADMIN_ACTOR, act, "admin", id || "", det);
+  }
   switch (act) {
     case "cat_save": {
       const name = f("name").trim().slice(0, 60); if (!name) return "اسم القسم مطلوب";
@@ -484,37 +833,118 @@ async function adminAct(act: string, f: (k: string) => string): Promise<string> 
       return "تم حفظ المنتج";
     }
     case "prod_del": await run(`DELETE FROM products WHERE id = $1`, [id]); return "تم حذف المنتج";
-    case "wallet_save": {
-      const name = f("name").trim().slice(0, 60), number = f("number").trim().slice(0, 80);
-      if (!name || !number) return "اسم المحفظة ورقم الدفع مطلوبان";
-      const active = f("active") === "1" ? 1 : 0;
-      if (id > 0) { await run(`UPDATE wallets SET name=$1, number=$2, active=$3 WHERE id=$4`, [name, number, active, id]); if (img) await run(`UPDATE wallets SET icon = $1 WHERE id = $2`, [img, id]); }
-      else await run(`INSERT INTO wallets (name, icon, number, active, created_at) VALUES ($1,$2,$3,$4,$5)`, [name, img || null, number, active, t]);
-      return "تم حفظ المحفظة";
+    case "method_save": {
+      const name = f("name").trim().slice(0, 60), info = f("info").trim().slice(0, 300), cur = f("currency");
+      if (!name || !info || !CURRENCIES.includes(cur)) return "الاسم والعملة ومعلومات الدفع مطلوبة";
+      const minA = Math.max(0, r4(Number(f("min_amount")) || 0)), maxA = Math.max(0, r4(Number(f("max_amount")) || 0));
+      if (maxA > 0 && maxA < minA) return "الحد الأقصى أقل من الحد الأدنى";
+      const exp = Math.min(10080, Math.max(1, Math.floor(Number(f("expiry_minutes")) || 60))), active = f("active") === "1" ? 1 : 0, ins = f("instructions").trim().slice(0, 600);
+      if (id > 0) {
+        await run(`UPDATE payment_methods SET name=$1, currency=$2, info=$3, instructions=$4, min_amount=$5, max_amount=$6, expiry_minutes=$7, active=$8, updated_at=$9 WHERE id=$10`, [name, cur, info, ins, minA, maxA, exp, active, t, id]);
+        if (img) await run(`UPDATE payment_methods SET icon = $1 WHERE id = $2`, [img, id]);
+        await audit(run, ADMIN_ACTOR, "update_payment_method", "payment_method", id, { name, currency: cur, info, min: minA, max: maxA, expiry: exp, active });
+      } else {
+        const r = await run(`INSERT INTO payment_methods (name, currency, icon, info, instructions, min_amount, max_amount, expiry_minutes, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING id`, [name, cur, img || null, info, ins, minA, maxA, exp, active, t]);
+        await audit(run, ADMIN_ACTOR, "create_payment_method", "payment_method", r[0].id, { name, currency: cur, info, min: minA, max: maxA, expiry: exp, active });
+      }
+      return "تم حفظ طريقة الدفع";
     }
-    case "wallet_del": await run(`DELETE FROM wallets WHERE id = $1`, [id]); return "تم حذف المحفظة";
+    case "method_toggle": {
+      const m = await first(`SELECT active FROM payment_methods WHERE id = $1`, [id]); if (!m) return "غير موجودة";
+      const na = num(m.active) ? 0 : 1;
+      await run(`UPDATE payment_methods SET active = $1, updated_at = $2 WHERE id = $3`, [na, t, id]);
+      await audit(run, ADMIN_ACTOR, na ? "enable_payment_method" : "disable_payment_method", "payment_method", id, {});
+      return na ? "تم تفعيل الطريقة" : "تم تعطيل الطريقة";
+    }
+    case "method_del": {
+      if (await count(`SELECT COUNT(*) c FROM deposit_orders WHERE method_id = $1`, [id]) > 0) {
+        await run(`UPDATE payment_methods SET active = 0, updated_at = $1 WHERE id = $2`, [t, id]);
+        await audit(run, ADMIN_ACTOR, "disable_payment_method", "payment_method", id, { reason: "has_financial_records" });
+        return "الطريقة مرتبطة بعمليات مالية سابقة، لذلك تم تعطيلها بدل حذفها";
+      }
+      await run(`DELETE FROM payment_methods WHERE id = $1`, [id]);
+      await audit(run, ADMIN_ACTOR, "delete_payment_method", "payment_method", id, {});
+      return "تم حذف طريقة الدفع";
+    }
+    case "rate_save": {
+      const old = await getRates(), out: string[] = [];
+      for (const c of ["JOD", "IQD"]) {
+        const v = Number(f("rate_" + c));
+        if (!(v > 0) || !Number.isFinite(v)) return "أدخل سعر صرف صحيحًا لكل عملة";
+        if (Math.abs(v - (old[c] ?? 0)) > 1e-9) {
+          await run(`UPDATE exchange_rates SET per_usdt = $1, updated_at = $2, updated_by = $3 WHERE currency = $4`, [v, t, ADMIN_ACTOR, c]);
+          await run(`INSERT INTO exchange_rate_history (currency, old_rate, new_rate, actor, created_at) VALUES ($1,$2,$3,$4,$5)`, [c, old[c] ?? null, v, ADMIN_ACTOR, t]);
+          await audit(run, ADMIN_ACTOR, "update_exchange_rate", "exchange_rate", c, { old: old[c], new: v });
+          out.push(c);
+        }
+      }
+      return out.length ? "تم تحديث أسعار الصرف" : "لا تغييرات";
+    }
+    case "dep_move": case "dep_mismatch": case "dep_reject": case "dep_approve": case "dep_reverse": case "dep_cancel": {
+      const o = await first(`SELECT * FROM deposit_orders WHERE id = $1`, [id]);
+      if (!o) return "الطلب غير موجود";
+      const note = f("note").trim().slice(0, 300), pushes: Push[] = [];
+      try {
+        await withTx(async (q) => {
+          if (act === "dep_move") {
+            const to = f("to");
+            if (!["under_review", "verifying"].includes(to)) throw new Fail("bad_transition", 409);
+            const n = await moveTo(q, o, to, ADMIN_ACTOR, note, { admin_actor: ADMIN_ACTOR });
+            await audit(q, ADMIN_ACTOR, "change_status", "deposit_order", n.txn_id, { from: o.status, to });
+            await notify(q, pushes, n, to);
+          } else if (act === "dep_mismatch") {
+            const paid = r4(Number(f("paid")));
+            if (!(paid > 0) || Math.abs(paid - num(o.amount)) < 1e-9) throw new Fail("invalid");
+            const n = await moveTo(q, o, "amount_mismatch", ADMIN_ACTOR, `المدفوع ${paid} مقابل المطلوب ${num(o.amount)}`, { paid_amount: paid, admin_actor: ADMIN_ACTOR });
+            await audit(q, ADMIN_ACTOR, "amount_mismatch", "deposit_order", n.txn_id, { requested: num(o.amount), paid, diff: r4(paid - num(o.amount)) });
+            await notify(q, pushes, n, "amount_mismatch");
+          } else if (act === "dep_reject") {
+            if (!note) throw new Fail("reason_required");
+            const n = await moveTo(q, o, "rejected", ADMIN_ACTOR, note, { reject_reason: note, admin_actor: ADMIN_ACTOR });
+            await audit(q, ADMIN_ACTOR, "reject_deposit", "deposit_order", n.txn_id, { reason: note });
+            await notify(q, pushes, n, "rejected", { r: note });
+          } else if (act === "dep_cancel") {
+            const n = await moveTo(q, o, "cancelled", ADMIN_ACTOR, note || "إلغاء من المسؤول", { admin_actor: ADMIN_ACTOR });
+            await audit(q, ADMIN_ACTOR, "cancel_deposit", "deposit_order", n.txn_id, { note });
+            await notify(q, pushes, n, "cancelled");
+          } else if (act === "dep_approve") {
+            const usePaid = f("use") === "paid" && o.status === "amount_mismatch" && o.paid_amount != null;
+            await audit(q, ADMIN_ACTOR, "approve_deposit", "deposit_order", o.txn_id, { use: usePaid ? "paid" : "requested" });
+            await creditOrder(q, pushes, o, ADMIN_ACTOR, usePaid ? num(o.paid_amount) : num(o.amount), note);
+          } else {
+            if (!note) throw new Fail("reason_required");
+            await reverseOrder(q, pushes, o, ADMIN_ACTOR, note);
+          }
+        });
+      } catch (e) {
+        if (e instanceof Fail) return ({ bad_transition: "لا يمكن هذا الانتقال من الحالة الحالية (ربما تمت معالجته)", duplicate: "تمت معالجة هذه العملية مسبقًا", reason_required: "السبب مطلوب", invalid: "قيمة غير صالحة", insufficient_for_reversal: "رصيد المستخدم الحالي لا يكفي لعكس العملية" } as Record<string, string>)[e.code] ?? "تعذّر تنفيذ العملية";
+        throw e;
+      }
+      await flushPush(pushes);
+      return "تم تنفيذ الإجراء";
+    }
     case "order_status": {
       const st = f("status");
       if (!ORDER_STATUS[st]) return "حالة غير صالحة";
       if (st === "cancelled") {
-        const r = await run(`UPDATE orders SET status='cancelled', updated_at=$1 WHERE id=$2 AND status IN ('new','processing') RETURNING user_id, total, product_id, qty`, [t, id]);
-        if (!r.length) return "لا يمكن إلغاء هذا الطلب";
-        await run(`UPDATE users SET balance = balance + $1 WHERE id = $2`, [num(r[0].total), r[0].user_id]);
-        await run(`UPDATE products SET qty = qty + $1 WHERE id = $2`, [num(r[0].qty), r[0].product_id]);
+        try {
+          await withTx(async (q) => {
+            const r = await q(`UPDATE orders SET status='cancelled', updated_at=$1 WHERE id=$2 AND status IN ('new','processing') RETURNING user_id, total, product_id, qty, currency`, [t, id]);
+            if (!r.length) throw new Fail("no");
+            const cur = r[0].currency, tot = num(r[0].total);
+            await q(`INSERT INTO user_wallets (user_id, currency, amount, updated_at) VALUES ($1,$2,0,$3) ON CONFLICT (user_id, currency) DO NOTHING`, [r[0].user_id, cur, t]);
+            const w = await q(`UPDATE user_wallets SET amount = amount + $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 RETURNING amount`, [tot, t, r[0].user_id, cur]);
+            const a = num(w[0].amount);
+            await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, note, actor, created_at) VALUES ($1,$2,$3,'refund',$4,$5,$6,$7,$8,$9,$10)`, [txid("TX"), "ref:" + id, r[0].user_id, cur, tot, r4(a - tot), a, `إلغاء الطلب #${id}`, ADMIN_ACTOR, t]);
+            await q(`UPDATE products SET qty = qty + $1 WHERE id = $2`, [num(r[0].qty), r[0].product_id]);
+            await audit(q, ADMIN_ACTOR, "cancel_order_refund", "order", id, { amount: tot, currency: cur });
+          });
+        } catch (e) { if (e instanceof Fail || isDup(e)) return "لا يمكن إلغاء هذا الطلب"; throw e; }
         return "تم إلغاء الطلب وإرجاع المبلغ للمستخدم";
       }
       await run(`UPDATE orders SET status=$1, updated_at=$2 WHERE id=$3 AND status <> 'cancelled'`, [st, t, id]);
+      await audit(run, ADMIN_ACTOR, "order_status", "order", id, { status: st });
       return "تم تحديث حالة الطلب";
-    }
-    case "topup_approve": {
-      const r = await run(`UPDATE topups SET status='approved', updated_at=$1 WHERE id=$2 AND status='pending' RETURNING user_id, amount`, [t, id]);
-      if (!r.length) return "الطلب غير موجود أو تمت معالجته";
-      await run(`UPDATE users SET balance = balance + $1 WHERE id = $2`, [num(r[0].amount), r[0].user_id]);
-      return "تمت الموافقة وإضافة الرصيد";
-    }
-    case "topup_reject": {
-      const r = await run(`UPDATE topups SET status='rejected', note=$1, updated_at=$2 WHERE id=$3 AND status='pending' RETURNING id`, [f("note").trim().slice(0, 200), t, id]);
-      return r.length ? "تم رفض الطلب" : "الطلب غير موجود أو تمت معالجته";
     }
     case "support_reply": {
       const uid = Number(f("uid")), body = f("body").trim().slice(0, 1000);
@@ -560,15 +990,6 @@ async function adminShell(tab: string, csrf: string, flash: string, url: URL): P
     }
     return out + `</div></div>${PICK_JS}`;
   }
-  if (tab === "wallets") {
-    out += `<div class="box"><h2>إضافة محفظة دفع</h2>${F("wallet_save", `<div class="row"><input type="text" name="name" placeholder="اسم المحفظة" required><input type="text" name="number" placeholder="رقم الدفع" dir="ltr" required><label><input type="checkbox" name="active" value="1" checked> ظاهرة</label>${picker(null)}<button class="y">إضافة</button></div>`)}</div>`;
-    out += `<div class="box"><h2>محافظ الدفع (يظهر للمستخدم زر نسخ للرقم)</h2>`;
-    for (const w of await run(`SELECT * FROM wallets ORDER BY id`)) {
-      out += F("wallet_save", `${hid("id", w.id)}<div class="row" style="margin-bottom:8px"><input type="text" name="name" value="${h(w.name)}"><input type="text" name="number" value="${h(w.number)}" dir="ltr"><label><input type="checkbox" name="active" value="1"${num(w.active) ? " checked" : ""}> ظاهرة</label>${picker(w.icon)}<button>حفظ</button><button type="button" class="g" data-copy="${h(w.number)}">نسخ الرقم</button></div>`) +
-        F("wallet_del", `${hid("id", w.id)}<button class="r" onclick="return confirm('حذف المحفظة؟')">حذف</button>`) + `<hr style="border:0;border-top:1px solid #eee">`;
-    }
-    return out + `</div></div>${PICK_JS}`;
-  }
   if (tab === "orders") {
     const sf = url.searchParams.get("st") ?? "";
     out += `<nav class="tabs"><a class="${!sf ? "on" : ""}" href="/admin?tab=orders">الكل</a>${Object.entries(ORDER_STATUS).map(([k, l]) => `<a class="${sf === k ? "on" : ""}" href="/admin?tab=orders&st=${k}">${l}</a>`).join("")}</nav>`;
@@ -578,18 +999,72 @@ async function adminShell(tab: string, csrf: string, flash: string, url: URL): P
     if (!rows.length) out += `<tr><td colspan="8" style="text-align:center;color:#777;padding:24px">لا توجد طلبات.</td></tr>`;
     return out + `</table></div></div>`;
   }
-  if (tab === "topups") {
-    const sf = url.searchParams.get("st") ?? "pending";
-    out += `<nav class="tabs">${[["pending", "قيد المراجعة"], ["approved", "تمت الموافقة"], ["rejected", "مرفوضة"]].map(([k, l]) => `<a class="${sf === k ? "on" : ""}" href="/admin?tab=topups&st=${k}">${l}</a>`).join("")}</nav>`;
-    const rows = await run(`SELECT t.*, u.username FROM topups t LEFT JOIN users u ON u.id = t.user_id WHERE t.status = $1 ORDER BY t.id DESC LIMIT 100`, [["pending", "approved", "rejected"].includes(sf) ? sf : "pending"]);
+  if (tab === "deposits") {
+    await expireStale();
+    const sf = url.searchParams.get("st") ?? "active";
+    const ACTIVE = ["proof_sent", "under_review", "verifying", "amount_mismatch", "awaiting_payment"];
+    const filters: [string, string][] = [["active", "تحتاج إجراء"], ["credited", STATUS_AR.credited], ["rejected", STATUS_AR.rejected], ["reversed", STATUS_AR.reversed], ["expired", STATUS_AR.expired], ["cancelled", STATUS_AR.cancelled], ["all", "الكل"]];
+    out += `<nav class="tabs">${filters.map(([k, l]) => `<a class="${sf === k ? "on" : ""}" href="/admin?tab=deposits&st=${k}">${l}</a>`).join("")}</nav>`;
+    const rows = sf === "all" ? await run(`SELECT d.*, u.username FROM deposit_orders d LEFT JOIN users u ON u.id = d.user_id ORDER BY d.id DESC LIMIT 150`)
+      : sf === "active" ? await run(`SELECT d.*, u.username FROM deposit_orders d LEFT JOIN users u ON u.id = d.user_id WHERE d.status IN (${ACTIVE.map((x) => `'${x}'`).join(",")}) ORDER BY d.id DESC LIMIT 150`)
+      : await run(`SELECT d.*, u.username FROM deposit_orders d LEFT JOIN users u ON u.id = d.user_id WHERE d.status = $1 ORDER BY d.id DESC LIMIT 150`, [filters.some(([k]) => k === sf) ? sf : "credited"]);
     out += `<div class="box"><h2>طلبات الشحن (${rows.length})</h2>`;
-    for (const t of rows) {
-      out += `<div class="row" style="align-items:flex-start;border-bottom:1px solid #eee;padding:12px 0"><img class="rc" src="${h(t.receipt)}" alt="إيصال"><div style="flex:1;min-width:200px"><b>${h(t.username ?? "—")}</b> · ${num(t.amount)}<br><small>المحفظة: ${h(t.wallet_name)} · ${fmtT(t.created_at)}</small><br><span class="st ${h(t.status)}">${t.status === "pending" ? "قيد المراجعة" : t.status === "approved" ? "تمت الموافقة" : "مرفوض"}</span>${t.note ? `<br><small>ملاحظة: ${h(t.note)}</small>` : ""}</div>`;
-      if (t.status === "pending") out += `<div>${F("topup_approve", `${hid("id", t.id)}<button class="y" onclick="return confirm('الموافقة وإضافة الرصيد؟')">موافقة وشحن</button>`, "&st=pending")}<br>${F("topup_reject", `${hid("id", t.id)}<div class="row"><input type="text" name="note" placeholder="سبب الرفض"><button class="r">رفض</button></div>`, "&st=pending")}</div>`;
-      out += `</div>`;
+    const ex = `&st=${h(sf)}`;
+    for (const d of rows) {
+      const proof = await first(`SELECT image FROM payment_proofs WHERE order_id = $1`, [d.id]);
+      const hist = await run(`SELECT * FROM status_history WHERE order_id = $1 ORDER BY id`, [d.id]);
+      const next = FLOW[d.status] ?? [];
+      const btns: string[] = [];
+      if (next.includes("under_review")) btns.push(F("dep_move", `${hid("id", d.id)}${hid("to", "under_review")}<button class="g">قيد المراجعة</button>`, ex));
+      if (next.includes("verifying")) btns.push(F("dep_move", `${hid("id", d.id)}${hid("to", "verifying")}<button class="g">قيد التحقق</button>`, ex));
+      if (next.includes("amount_mismatch")) btns.push(F("dep_mismatch", `${hid("id", d.id)}<div class="row"><input type="number" step="any" min="0" name="paid" placeholder="المبلغ المدفوع فعليًا" required style="width:150px"><button class="g">مبلغ غير مطابق</button></div>`, ex));
+      if (next.includes("approved")) {
+        btns.push(F("dep_approve", `${hid("id", d.id)}${hid("use", "requested")}<button class="y" onclick="return confirm('اعتماد وإضافة ${num(d.amount)} ${h(d.currency)} إلى رصيد المستخدم؟')">${d.status === "amount_mismatch" ? `اعتماد بالمبلغ المطلوب (${num(d.amount)})` : "اعتماد وإضافة الرصيد"}</button>`, ex));
+        if (d.status === "amount_mismatch" && d.paid_amount != null) btns.push(F("dep_approve", `${hid("id", d.id)}${hid("use", "paid")}<button class="y" onclick="return confirm('اعتماد وإضافة ${num(d.paid_amount)} ${h(d.currency)} (المدفوع فعليًا)؟')">اعتماد بالمبلغ المدفوع (${num(d.paid_amount)})</button>`, ex));
+      }
+      if (next.includes("rejected")) btns.push(F("dep_reject", `${hid("id", d.id)}<div class="row"><input type="text" name="note" placeholder="سبب الرفض (مطلوب)" required><button class="r">رفض</button></div>`, ex));
+      if (next.includes("cancelled")) btns.push(F("dep_cancel", `${hid("id", d.id)}<button class="g" onclick="return confirm('إلغاء الطلب؟')">إلغاء</button>`, ex));
+      if (next.includes("reversed")) btns.push(F("dep_reverse", `${hid("id", d.id)}<div class="row"><input type="text" name="note" placeholder="سبب العكس (مطلوب)" required><button class="r" onclick="return confirm('عكس العملية وخصم ${num(d.credit_amount)} ${h(d.currency)} من رصيد المستخدم؟')">عكس العملية</button></div>`, ex));
+      out += `<div class="row" style="align-items:flex-start;border-bottom:1px solid #eee;padding:14px 0">${proof ? `<img class="rc" src="${h(proof.image)}" alt="إثبات">` : `<div class="rc" style="width:120px;height:90px;display:grid;place-items:center;color:#999">لا يوجد إثبات</div>`}
+        <div style="flex:1;min-width:230px"><b dir="ltr">${h(d.txn_id)}</b> <span class="st ${h(d.status)}">${h(STATUS_AR[d.status] ?? d.status)}</span><br>
+        <b>${h(d.username ?? "—")}</b> (ID ${num(d.user_id)}) · <b dir="ltr">${num(d.amount)} ${h(d.currency)}</b><br>
+        <small>الطريقة: ${h(d.method_name)} · سعر الصرف المثبّت: 1 USDT = ${num(d.rate_usdt)} ${h(d.currency)}</small><br>
+        <small>أُنشئ: ${fmtT(d.created_at)} · آخر تحديث: ${fmtT(d.updated_at)} · ينتهي: ${fmtT(d.expires_at)}</small>
+        ${d.paid_amount != null ? `<br><small style="color:#b71c1c">المطلوب ${num(d.amount)} · المدفوع ${num(d.paid_amount)} · الفرق ${r4(num(d.paid_amount) - num(d.amount))} ${h(d.currency)}</small>` : ""}
+        ${d.balance_after != null ? `<br><small>الرصيد قبل: ${num(d.balance_before)} · بعد: ${num(d.balance_after)} · المسؤول: ${h(d.admin_actor ?? "—")}</small>` : ""}
+        ${d.reject_reason ? `<br><small>السبب: ${h(d.reject_reason)}</small>` : ""}
+        <details style="margin-top:6px"><summary>سجل تغيّر الحالة (${hist.length})</summary>${hist.map((x) => `<div style="font-size:12px;color:#555">${fmtT(x.created_at)} · ${h(STATUS_AR[x.from_status] ?? "—")} ← <b>${h(STATUS_AR[x.to_status] ?? x.to_status)}</b> · ${h(x.actor)}${x.note ? " · " + h(x.note) : ""}</div>`).join("")}</details></div>
+        <div class="acts" style="flex-direction:column;align-items:stretch;min-width:240px">${btns.join("")}</div></div>`;
     }
     if (!rows.length) out += `<p style="color:#777">لا توجد طلبات.</p>`;
     return out + `</div></div>`;
+  }
+  if (tab === "methods") {
+    const optc = (sel: string) => CURRENCIES.map((c) => `<option${c === sel ? " selected" : ""}>${c}</option>`).join("");
+    const form = (m: Row | null) => F("method_save", `${m ? hid("id", m.id) : ""}<div class="row" style="margin-bottom:6px"><input type="text" name="name" placeholder="اسم الطريقة" value="${h(m?.name ?? "")}" required><select name="currency">${optc(m?.currency ?? "JOD")}</select><input type="number" step="any" min="0" name="min_amount" placeholder="أدنى مبلغ" value="${m ? num(m.min_amount) : ""}" style="width:110px"><input type="number" step="any" min="0" name="max_amount" placeholder="أعلى مبلغ (0=بلا حد)" value="${m ? num(m.max_amount) : ""}" style="width:150px"><input type="number" min="1" name="expiry_minutes" placeholder="مدة الصلاحية (دقيقة)" value="${m ? num(m.expiry_minutes) : 60}" style="width:150px"><label><input type="checkbox" name="active" value="1"${!m || num(m.active) ? " checked" : ""}> مفعّلة</label>${picker(m?.icon ?? null)}</div><div class="row"><input type="text" name="info" dir="ltr" placeholder="معلومات الدفع (رقم/عنوان المحفظة)" value="${h(m?.info ?? "")}" style="flex:1;min-width:240px" required><input type="text" name="instructions" placeholder="تعليمات الدفع" value="${h(m?.instructions ?? "")}" style="flex:1;min-width:240px"><button class="${m ? "" : "y"}">${m ? "حفظ" : "إضافة"}</button></div>`);
+    out += `<div class="box"><h2>إضافة طريقة دفع</h2>${form(null)}</div><div class="box"><h2>طرق الدفع</h2>`;
+    for (const m of await run(`SELECT * FROM payment_methods ORDER BY id`))
+      out += `<div style="margin-bottom:14px">${form(m)}<div class="row">${F("method_toggle", `${hid("id", m.id)}<button class="g">${num(m.active) ? "تعطيل مؤقت" : "تفعيل"}</button>`)}${F("method_del", `${hid("id", m.id)}<button class="r" onclick="return confirm('حذف الطريقة؟ إن كانت مرتبطة بعمليات مالية فسيتم تعطيلها فقط.')">حذف</button>`)}<span class="st ${num(m.active) ? "done" : "cancelled"}">${num(m.active) ? "مفعّلة" : "معطّلة"}</span></div><hr style="border:0;border-top:1px solid #eee"></div>`;
+    return out + `</div></div>${PICK_JS}`;
+  }
+  if (tab === "rates") {
+    const rt = await getRates();
+    out += `<div class="box"><h2>أسعار الصرف</h2><p style="color:#777;font-size:13px">لا تُحوَّل العملات تلقائيًا إلا بهذه الأسعار (تُستخدم عند الشراء بعملة غير الدينار، والمنتجات مسعّرة بالدينار الأردني). كل طلب شحن يثبّت السعر وقت إنشائه فلا يتغير إن عدّلت السعر لاحقًا. القيم الافتراضية أولية — راجعها قبل الاعتماد.</p>${F("rate_save", `<div class="row"><label>1 USDT = <input type="number" step="any" min="0" name="rate_JOD" value="${rt.JOD}" style="width:120px"> JOD</label><label>1 USDT = <input type="number" step="any" min="0" name="rate_IQD" value="${rt.IQD}" style="width:120px"> IQD</label><button class="y">حفظ الأسعار</button></div>`)}</div>`;
+    const hist = await run(`SELECT * FROM exchange_rate_history ORDER BY id DESC LIMIT 100`);
+    out += `<div class="box"><h2>سجل تعديل الأسعار</h2><table><tr><th>العملة</th><th>من</th><th>إلى</th><th>المسؤول</th><th>التاريخ</th></tr>${hist.map((x) => `<tr><td>${h(x.currency)}</td><td>${x.old_rate == null ? "—" : num(x.old_rate)}</td><td>${num(x.new_rate)}</td><td>${h(x.actor)}</td><td>${fmtT(x.created_at)}</td></tr>`).join("") || `<tr><td colspan="5" style="color:#777">لا توجد تعديلات بعد.</td></tr>`}</table></div>`;
+    return out + `</div>`;
+  }
+  if (tab === "ledger") {
+    const v = url.searchParams.get("v") ?? "tx";
+    out += `<nav class="tabs"><a class="${v === "tx" ? "on" : ""}" href="/admin?tab=ledger&v=tx">العمليات المالية</a><a class="${v === "audit" ? "on" : ""}" href="/admin?tab=ledger&v=audit">سجل الإجراءات (Audit)</a></nav>`;
+    if (v === "audit") {
+      const rows = await run(`SELECT * FROM audit_logs ORDER BY id DESC LIMIT 300`);
+      out += `<div class="box"><h2>سجل الإجراءات (للقراءة فقط · لا يمكن حذفه)</h2><table><tr><th>#</th><th>التاريخ</th><th>المنفّذ</th><th>الإجراء</th><th>الكيان</th><th>تفاصيل</th></tr>${rows.map((x) => `<tr><td>${num(x.id)}</td><td>${fmtT(x.created_at)}</td><td>${h(x.actor)}</td><td>${h(x.action)}</td><td dir="ltr">${h(x.entity)} ${h(x.entity_id)}</td><td dir="ltr" style="font-size:12px;max-width:340px;word-break:break-all">${h(x.details)}</td></tr>`).join("")}</table></div>`;
+    } else {
+      const rows = await run(`SELECT t.*, u.username FROM transactions t LEFT JOIN users u ON u.id = t.user_id ORDER BY t.id DESC LIMIT 300`);
+      out += `<div class="box"><h2>السجل المالي (للقراءة فقط · لا يمكن حذفه)</h2><table><tr><th>Transaction ID</th><th>المستخدم</th><th>النوع</th><th>المبلغ</th><th>قبل</th><th>بعد</th><th>المرجع</th><th>المنفّذ</th><th>التاريخ</th></tr>${rows.map((x) => `<tr><td dir="ltr">${h(x.txn_id)}</td><td>${h(x.username ?? "—")} (${num(x.user_id)})</td><td>${h(x.type)}</td><td dir="ltr" style="color:${num(x.amount) < 0 ? "#b71c1c" : "#1b6b1b"}">${num(x.amount)} ${h(x.currency)}</td><td>${num(x.balance_before)}</td><td>${num(x.balance_after)}</td><td dir="ltr">${h(x.ref_txn_id ?? "")}</td><td>${h(x.actor ?? "")}</td><td>${fmtT(x.created_at)}</td></tr>`).join("")}</table></div>`;
+    }
+    return out + `</div>`;
   }
   if (tab === "support") {
     const uid = Number(url.searchParams.get("u")) || 0;

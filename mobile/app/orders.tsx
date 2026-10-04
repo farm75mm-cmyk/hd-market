@@ -6,7 +6,7 @@ import { Page, s } from "@/components/app-shell";
 import { api } from "@/lib/api";
 import { tr, useLocale } from "@/lib/i18n-app";
 
-type Order = { id: number; product_name: string; qty: number; total: number; status: string; created_at: number };
+type Order = { id: number; product_name: string; qty: number; total: number; status: string; created_at: number; currency?: string };
 const COLORS: Record<string, string> = { new: "#FFF3CD", processing: "#DCEBFF", done: "#E6F4E6", cancelled: "#FDE8E8" };
 
 export default function OrdersScreen() {
@@ -37,7 +37,7 @@ export default function OrdersScreen() {
           <View style={[s.card, { flexDirection: rtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center" }]}>
             <View>
               <Text style={{ fontWeight: "800", fontSize: 15, textAlign: rtl ? "right" : "left" }}>#{o.id} · {o.product_name}</Text>
-              <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "qty")}: {o.qty} · {tr(L, "total")}: {o.total}</Text>
+              <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{tr(L, "qty")}: {o.qty} · {tr(L, "total")}: {o.total} {o.currency ?? "JOD"}</Text>
               <Text style={[s.muted, { textAlign: rtl ? "right" : "left" }]}>{new Date(o.created_at * 1000).toLocaleString()}</Text>
             </View>
             <Text style={[s.chip, { backgroundColor: COLORS[o.status] ?? "#EEE" }]}>{tr(L, o.status)}</Text>

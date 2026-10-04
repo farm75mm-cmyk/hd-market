@@ -18,13 +18,14 @@ export function SupportWatcher() {
   const path = usePathname();
   const insets = useSafeAreaInsets();
   const L = useLocale(undefined);
-  const [note, setNote] = useState<{ id: number; body: string } | null>(null);
+  const [note, setNote] = useState<{ title: string; body: string; screen: "support" | "notifications" } | null>(null);
   const shown = useRef(0);
+  const shownN = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const openChat = useCallback(() => {
+  const openScreen = useCallback((screen: "support" | "notifications") => {
     setNote(null);
-    router.push({ pathname: "/support", params: { locale: L } });
+    router.push({ pathname: screen === "support" ? "/support" : "/notifications", params: { locale: L } });
   }, [router, L]);
 
   const poll = useCallback(async () => {
@@ -35,7 +36,7 @@ export function SupportWatcher() {
       const r = await api<{ unread: number; last_id: number; body: string }>("support_poll", {}, true);
       if (r.unread > 0 && r.last_id > shown.current && path !== "/support") {
         shown.current = r.last_id;
-        setNote({ id: r.last_id, body: r.body });
+        setNote({ title: `HD Market · ${tr(L, "newReply")}`, body: r.body, screen: "support" });
         void playChosenTone();
         if (hideTimer.current) clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => setNote(null), 8000);
@@ -43,7 +44,19 @@ export function SupportWatcher() {
     } catch {
       /* ignore */
     }
-  }, [path]);
+    try {
+      const n = await api<{ unread: number; last_id: number; title: string; body: string; title_en: string; body_en: string }>("notif_poll", {}, true);
+      if (n.unread > 0 && n.last_id > shownN.current && path !== "/notifications") {
+        shownN.current = n.last_id;
+        setNote({ title: `HD Market · ${L === "ar" ? n.title : n.title_en || n.title}`, body: L === "ar" ? n.body : n.body_en || n.body, screen: "notifications" });
+        void playChosenTone();
+        if (hideTimer.current) clearTimeout(hideTimer.current);
+        hideTimer.current = setTimeout(() => setNote(null), 8000);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [path, L]);
 
   useEffect(() => {
     void poll();
@@ -57,20 +70,21 @@ export function SupportWatcher() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
+    const target = (r: Notifications.NotificationResponse) => ((r.notification.request.content.data as any)?.screen === "notifications" ? "notifications" : "support");
     Notifications.getLastNotificationResponseAsync()
-      .then((r) => r && openChat())
+      .then((r) => r && openScreen(target(r)))
       .catch(() => undefined);
-    const sub = Notifications.addNotificationResponseReceivedListener(() => openChat());
+    const sub = Notifications.addNotificationResponseReceivedListener((r) => openScreen(target(r)));
     return () => sub.remove();
-  }, [openChat]);
+  }, [openScreen]);
 
   if (!note) return null;
   return (
     <Animated.View entering={FadeInUp} exiting={FadeOutUp} style={[styles.wrap, { top: insets.top + 8 }]}>
-      <Pressable onPress={openChat} style={styles.card}>
+      <Pressable onPress={() => openScreen(note.screen)} style={styles.card}>
         <Image source={LOGO} style={styles.logo} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>HD Market · {tr(L, "newReply")}</Text>
+          <Text style={styles.title}>{note.title}</Text>
           <Text style={styles.body} numberOfLines={2}>{note.body}</Text>
         </View>
       </Pressable>
