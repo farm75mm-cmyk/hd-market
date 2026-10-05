@@ -35,6 +35,7 @@ const P: Record<string, string> = {
   trend: `<path d="m23 6-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/>`,
   check: `<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10-3-3"/>`,
   user: `<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`,
+  chevL: `<path d="M15 5l-7 7 7 7"/>`, chevR: `<path d="M9 5l7 7-7 7"/>`,
   plus: `<path d="M12 5v14M5 12h14"/>`,
 };
 export const ic = (n: string, s = 24) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] ?? ""}</svg>`;
@@ -59,7 +60,7 @@ export const tabTile = (tab: string, size = 52) => tile(TAB_ICON[tab]?.[1] ?? 0,
 const FLAG_UK = `<svg width="26" height="18" viewBox="0 0 60 40" aria-hidden="true"><clipPath id="u"><path d="M0 0h60v40H0z"/></clipPath><g clip-path="url(#u)"><path d="M0 0v40h60V0z" fill="#012169"/><path d="m0 0 60 40m0-40L0 40" stroke="#fff" stroke-width="8"/><path d="m0 0 60 40m0-40L0 40" stroke="#C8102E" stroke-width="4"/><path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="13"/><path d="M30 0v40M0 20h60" stroke="#C8102E" stroke-width="8"/></g></svg>`;
 const FLAG_AR = `<svg width="26" height="18" viewBox="0 0 60 40" aria-hidden="true"><path d="M0 0h60v13.3H0z" fill="#111"/><path d="M0 13.3h60v13.4H0z" fill="#fff"/><path d="M0 26.7h60V40H0z" fill="#007a3d"/><path d="m0 0 27 20L0 40z" fill="#ce1126"/></svg>`;
 
-export const CSS = `*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{-webkit-text-size-adjust:100%}body{margin:0;font-family:Cairo,system-ui,Tahoma,sans-serif;background:#f5f6fa;color:#1b2333;font-size:15px;line-height:1.5}
+export const CSS = `.lh{display:flex;align-items:center;gap:12px;margin:2px 0 14px}.lh h2{margin:0;flex:1;font-size:24px}.lh .bk{width:44px;height:44px;border-radius:50%;background:#eef0f6;display:flex;align-items:center;justify-content:center;color:#111;text-decoration:none;order:-1}.lh .plus{width:44px;height:44px;border-radius:50%;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;text-decoration:none}.lc{background:#fff;border:1px solid #eceef5;border-radius:22px;overflow:hidden}.lr{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid #eceef5;text-decoration:none;color:inherit}.lr:last-child{border-bottom:0}.lr .li{width:62px;height:62px;border-radius:14px;object-fit:cover;flex:none;display:block}.lr .lt{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}.lr .lt b{font-size:18px;font-weight:800}.lr .lt small{color:#8b93a7;font-size:15px}.lr svg{color:#555;flex:none}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{-webkit-text-size-adjust:100%}body{margin:0;font-family:Cairo,system-ui,Tahoma,sans-serif;background:#f5f6fa;color:#1b2333;font-size:15px;line-height:1.5}
 a{color:inherit}h2{font-size:17px;margin:0 0 12px;font-weight:800}h3{font-size:15px;margin:0 0 8px}
 .top{position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid #eceef5;display:flex;align-items:center;gap:10px;padding:12px 14px}
 .top .ttl{flex:1;font-weight:800;font-size:17px;text-align:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
