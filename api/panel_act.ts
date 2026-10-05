@@ -3,10 +3,10 @@ import {
   run, first, count, withTx, num, nowS, rnd, r4, env, Fail, okImg, ADMIN_ACTOR, CURRENCIES, getRates, getSet, putSet, audit, FLOW, moveTo, creditOrder,
   reverseOrder, notify, flushPush, isDup, Push, sendPush, pushTo,
 } from "./core";
-import { cancelOrder, deliverOrder, adjustBalance, pushAll } from "./shop";
+import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll } from "./shop";
 
 type F = (k: string) => string;
-const NO_GENERIC_AUDIT = new Set(["dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
+const NO_GENERIC_AUDIT = new Set(["dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "wallet_zero", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
 const HIDE = new Set(["image", "csrf", "do", "token", "game_id", "codes", "password"]);
 const ORDER_ST = ["new", "processing", "done", "cancelled"];
 const bool = (v: string) => (v === "1" || v === "on" ? 1 : 0);
@@ -258,6 +258,7 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     }
 
     // ----- users -----
+    case "wallet_zero": return zeroWallet(id, f("currency"), f("reason"), ADMIN_ACTOR);
     case "bal_adjust": return adjustBalance(id, f("currency"), Number(f("amount")), f("reason"), ADMIN_ACTOR);
     case "ban": case "unban": case "unlock": case "noavatar": case "resetpw": case "delete": {
       const u = await first(`SELECT * FROM users WHERE id = $1`, [id]);

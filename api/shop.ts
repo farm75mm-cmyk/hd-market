@@ -363,3 +363,31 @@ export async function adjustBalance(uid: number, cur: string, amount: number, re
   await pushTo(uid, "HD Market", "تم تعديل رصيدك", "wallet");
   return "تم تعديل الرصيد";
 }
+
+export async function zeroWallet(uid: number, cur: string, reason: string, actor: string): Promise<string> {
+  const list = cur === "all" ? CURRENCIES : CURRENCIES.includes(cur) ? [cur] : [];
+  if (!list.length || !reason.trim()) return "اختر العملة وأدخل السبب (مطلوب)";
+  const done: string[] = [];
+  try {
+    await withTx(async (q) => {
+      if (!(await q(`SELECT 1 FROM users WHERE id = $1`, [uid])).length) throw new Fail("no");
+      const t = nowS();
+      for (const c of list) {
+        const w = (await q(`SELECT amount FROM user_wallets WHERE user_id = $1 AND currency = $2`, [uid, c]))[0];
+        const bal = w ? num(w.amount) : 0;
+        if (!(bal > 0)) continue;
+        const u = await q(`UPDATE user_wallets SET amount = amount - $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 AND amount >= $1 RETURNING amount`, [bal, t, uid, c]);
+        if (!u.length) throw new Fail("busy");
+        const after = num(u[0].amount);
+        await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, note, actor, created_at) VALUES ($1,$2,$3,'adjust',$4,$5,$6,$7,$8,$9,$10)`, [txid("TX"), "zero:" + rnd(8), uid, c, -bal, bal, after, ("تصفير المحفظة: " + reason).slice(0, 300), actor, t]);
+        await audit(q, actor, "zero_wallet", "user", uid, { currency: c, amount: -bal, reason, after });
+        done.push(`${bal} ${c}`);
+      }
+      if (done.length) await q(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'adjust',$2,$3,$4,$5,'',$6)`,
+        [uid, "تم تعديل رصيدك", `تم تصفير محفظتك (${done.join("، ")}). السبب: ${reason.slice(0, 200)}`, "Your balance was adjusted", `Your wallet was reset (${done.join(", ")}). Reason: ${reason.slice(0, 200)}`, t]);
+    });
+  } catch (e) { if (e instanceof Fail) return e.code === "busy" ? "تغيّر الرصيد أثناء التنفيذ، أعد المحاولة" : "المستخدم غير موجود"; throw e; }
+  if (!done.length) return "رصيد المحفظة صفر أصلاً";
+  await pushTo(uid, "HD Market", "تم تعديل رصيدك", "wallet");
+  return "تم تصفير المحفظة: " + done.join("، ");
+}
