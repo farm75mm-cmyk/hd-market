@@ -19,6 +19,10 @@ await alter(`ALTER TABLE orders ADD COLUMN delivered_at BIGINT NOT NULL DEFAULT 
 await alter(`ALTER TABLE orders ADD COLUMN usdt DOUBLE PRECISION NOT NULL DEFAULT 0`);
 await alter(`ALTER TABLE orders ADD COLUMN ref_id BIGINT NOT NULL DEFAULT 0`);
 await alter(`ALTER TABLE orders ADD COLUMN idem_key TEXT`);
+await alter(`ALTER TABLE orders ADD COLUMN farm_tag TEXT`);
+await alter(`ALTER TABLE orders ADD COLUMN farm_cap INT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE products ADD COLUMN need_tag INT NOT NULL DEFAULT 0`);
+await run(`CREATE TABLE IF NOT EXISTS tag_usage (product_id BIGINT NOT NULL, tag TEXT NOT NULL, qty INT NOT NULL DEFAULT 0, PRIMARY KEY (product_id, tag))`);
 await alter(`ALTER TABLE products ADD COLUMN descr TEXT`);
 await alter(`ALTER TABLE products ADD COLUMN kind TEXT NOT NULL DEFAULT 'tool'`);
 await run(`CREATE UNIQUE INDEX IF NOT EXISTS order_idem ON orders (user_id, idem_key)`);
@@ -116,7 +120,7 @@ async function placeOrder(q: Q, u: Row, cur: string, o: OrderIn) {
 const ordOut = (o: Row) => {
   let lines: any = null; try { lines = o.lines ? JSON.parse(o.lines) : null; } catch {}
   const showDelivery = o.delivery && (o.kind !== "farm" || o.status === "done");
-  return { id: num(o.id), kind: o.kind ?? "tool", name: o.product_name, qty: num(o.qty), total: num(o.total), currency: o.currency ?? "JOD", status: o.status, created_at: num(o.created_at), updated_at: num(o.updated_at), lines, delivery: showDelivery ? o.delivery : null, delivered_at: num(o.delivered_at) };
+  return { farm_tag: o.farm_tag ?? null, farm_cap: num(o.farm_cap), id: num(o.id), kind: o.kind ?? "tool", name: o.product_name, qty: num(o.qty), total: num(o.total), currency: o.currency ?? "JOD", status: o.status, created_at: num(o.created_at), updated_at: num(o.updated_at), lines, delivery: showDelivery ? o.delivery : null, delivered_at: num(o.delivered_at) };
 };
 const curOf = (b: Row) => (CURRENCIES.includes(String(b.currency)) ? String(b.currency) : "JOD");
 const idemOf = (b: Row) => String(b.idem_key ?? "").slice(0, 64) || null;
@@ -135,7 +139,7 @@ async function finish(uid: any, idem: string | null, fn: () => Promise<{ id: num
     throw e;
   }
 }
-const prodOut = (p: Row) => ({ id: num(p.id), category_id: num(p.category_id), name: p.name, image: imgUrl("p", p), price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order), descr: p.descr ?? "" });
+const prodOut = (p: Row) => ({ need_tag: num(p.need_tag), id: num(p.id), category_id: num(p.category_id), name: p.name, image: imgUrl("p", p), price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order), descr: p.descr ?? "" });
 
 export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async home() {
@@ -157,7 +161,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   },
   async catalog() {
     const categories = await run(`SELECT id, name, name_en, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
-    const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, descr, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
+    const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, need_tag, descr, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
     return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c) })), products: products.map(prodOut) });
   },
   async opt_items() {
@@ -189,11 +193,13 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     const cur = curOf(b), idem = idemOf(b), kind = b.kind === "opt" ? "opt" : "cart";
     const dup = await dupOrder(u.id, idem); if (dup) return dup;
     const raw = Array.isArray(b.lines) ? b.lines.slice(0, 400) : [];
+    const ftag = String(b.tag ?? "").toUpperCase().replace(/^#/, "").trim(), fcap = Math.floor(Number(b.cap)) || 0;
+    const tagOk = /^[0-9A-Z]{3,15}$/.test(ftag) ? ftag : "";
     const want = new Map<number, number>();
     for (const l of raw) { const id = Math.floor(Number(l?.id)), q = Math.floor(Number(l?.q)); if (id >= 0 && q >= 1 && q <= 9999) want.set(id, (want.get(id) ?? 0) + q); }
     if (!want.size) throw new Fail("invalid");
     return finish(u.id, idem, () => withTx(async (q) => {
-      const lines: any[] = []; let usdt = 0, qty = 0;
+      const lines: any[] = []; let usdt = 0, qty = 0, usedTag = false;
       if (kind === "opt") {
         const dp = await optPrice();
         for (const [id, n] of want) {
@@ -206,14 +212,24 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
         for (const [id, n] of want) {
           const p = (await q(`SELECT * FROM products WHERE id = $1 AND active = 1 AND kind = 'tool'`, [id]))[0];
           if (!p) throw new Fail("not_found", 404, { id });
-          if (num(p.max_order) > 0 && n > num(p.max_order)) throw new Fail("limit_exceeded", 400, { max: num(p.max_order), id });
+          if (num(p.need_tag)) {
+            if (!tagOk || !(fcap > 0)) throw new Fail("tag_required", 400, { id });
+            if (num(p.max_order) > 0) {
+              const used = num((await q(`SELECT qty FROM tag_usage WHERE product_id = $1 AND tag = $2`, [id, tagOk]))[0]?.qty);
+              if (used + n > num(p.max_order)) throw new Fail("tag_limit", 400, { max: num(p.max_order), used, id });
+            }
+            await q(`INSERT INTO tag_usage (product_id, tag, qty) VALUES ($1,$2,$3) ON CONFLICT (product_id, tag) DO UPDATE SET qty = tag_usage.qty + $3`, [id, tagOk, n]);
+            usedTag = true;
+          } else if (num(p.max_order) > 0 && n > num(p.max_order)) throw new Fail("limit_exceeded", 400, { max: num(p.max_order), id });
           if (!(await q(`UPDATE products SET qty = qty - $1 WHERE id = $2 AND (qty < 0 OR qty >= $1) RETURNING id`, [n, id])).length) throw new Fail("out_of_stock", 409, { id });
           lines.push({ id, n: p.name, q: n, p: num(p.price) }); usdt += num(p.price) * n; qty += n;
         }
       }
       usdt = Math.round(usdt * 1e8) / 1e8;
       const name = lines.length === 1 ? `${lines[0].n} × ${lines[0].q}` : (kind === "opt" ? "منتجات اختياري" : "طلب أدوات") + ` (${qty})`;
-      return placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem });
+      const ro = await placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem });
+      if (usedTag) await q(`UPDATE orders SET farm_tag = $1, farm_cap = $2 WHERE id = $3`, [tagOk, fcap, ro.id]);
+      return ro;
     }));
   },
   async farm_buy(b) {

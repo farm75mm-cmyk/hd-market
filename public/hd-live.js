@@ -6,7 +6,7 @@ const E=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;","
 const css=document.createElement("style");
 const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#111;text-align:center;font-weight:800;padding:9px 12px;font-size:14px}\n.xm{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}\n.xm h2{font-size:26px;margin:10px 0}.xm p{color:var(--mute);margin-bottom:20px;line-height:1.6}\n.xbtn{border:0;border-radius:12px;background:var(--btn);color:var(--btnink);font:800 15px inherit;font-family:inherit;padding:10px 16px;cursor:pointer}\n.xs{width:34px;height:34px;border:0;border-radius:10px;background:var(--field);color:var(--ink);font-size:20px;cursor:pointer}\n.xc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}\n.xc small,.xpi small{color:var(--mute);display:block;margin-top:4px}\n.xr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}.xr.sp{justify-content:space-between;margin-top:0}\n.xchip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--field)}\n.xchip.st-new,.xchip.t-pending{background:#FFF3CD;color:#6b5200}.xchip.st-done,.xchip.t-approved{background:#E6F4E6;color:#1b6b1b}.xchip.st-cancelled,.xchip.t-rejected,.xchip.bad{background:#FDE8E8;color:#b71c1c}.xchip.st-processing{background:#DCEBFF;color:#1a4fa0}\n.xin{width:100%;height:50px;border-radius:14px;border:1.5px solid var(--line);background:var(--field);color:var(--ink);font:600 16px inherit;font-family:inherit;padding-inline:14px;margin:6px 0}\n.xfile{display:flex;align-items:center;justify-content:center;height:50px;border-radius:14px;border:1.5px dashed var(--ink);font-weight:800;cursor:pointer;margin:8px 0}\n.xrp{width:100%;max-height:220px;object-fit:contain;border-radius:14px;margin:6px 0 10px}\n.xw{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:10px;margin-bottom:10px;cursor:pointer}\n.xw.on{border-color:var(--ink)}.xw img,.xw .xph{width:46px;height:46px;border-radius:12px;object-fit:cover;background:var(--field);flex:none}\n.xw .xwi{flex:1;min-width:0}.xw b{display:block}.xw small{color:var(--mute)}.xw bdi{font-weight:800;color:var(--ink)}\n.xp{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.xp img,.xp .xph{width:78px;height:78px;border-radius:14px;object-fit:cover;background:var(--field);flex:none}.xpi{flex:1;min-width:0}\n.xi2{width:100%;height:100%;object-fit:cover;border-radius:14px}\n.xchat{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;margin-bottom:12px;padding:4px 0}\n.xmg{max-width:82%;padding:9px 13px;border-radius:16px;white-space:pre-wrap;line-height:1.5;font-weight:600}\n.xmg.me{align-self:flex-end;background:var(--btn);color:var(--btnink)}.xmg.ad{align-self:flex-start;background:var(--card);border:1px solid var(--line)}\n.xmg small{display:block;opacity:.6;font-size:11px;margin-top:2px}\n.xchip.on{background:var(--ink);color:var(--bg)}\nbutton.xchip{border:0;font-family:inherit;cursor:pointer}\n.xmut{color:var(--mute);font-weight:600;margin-bottom:8px;line-height:1.6}\n.xerr{background:var(--errbg);color:var(--err);border-radius:12px;padding:9px 12px;font-weight:700;margin:8px 0}\n.xcode{font-family:ui-monospace,monospace;background:var(--field);border-radius:12px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;direction:ltr;text-align:left;margin:8px 0}\n.xdone{text-align:center;padding:6px 0}.xdone .big{font-size:46px}.xdone .pz{font-size:26px;font-weight:900;margin:10px 0}\n.xbd{position:absolute;top:6px;inset-inline-end:6px;background:#e53935;color:#fff;border-radius:99px;min-width:16px;height:16px;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 3px}\n.ic button{position:relative}\nnav button{position:relative}nav .xbd{top:2px;inset-inline-end:calc(50% - 22px)}\n.sg{margin:0 16px 16px;border:1px solid var(--line);border-radius:28px;background:var(--card);overflow:hidden}\n.sr{display:flex;align-items:center;gap:14px;padding:16px 18px;min-height:82px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);color:inherit;font-family:inherit;text-align:start;cursor:pointer}\n.sg .sr:last-child{border-bottom:0}\n.sr .si{width:58px;height:58px;border-radius:18px;background:var(--field);display:grid;place-items:center;flex:none}\n.sr .si svg{width:29px;height:29px}\n.sr .sl{flex:1;font-weight:800;font-size:20px}\n.sr .sv{color:#9b9b9b;font-size:17px;display:flex;align-items:center;gap:6px;flex:none}\n.sr .sv svg{width:24px;height:24px}\n[dir=rtl] .sr .sv svg.chv{transform:scaleX(-1)}\n.sr.red .sl{color:#c52b50}.sr.red .si{background:#fdecef;color:#c52b50}\n.sw{width:58px;height:34px;border-radius:99px;background:#d3d3d3;position:relative;flex:none;transition:.2s}\n.sw::after{content:\"\";position:absolute;top:3px;inset-inline-start:3px;width:28px;height:28px;border-radius:50%;background:#fff;transition:.2s}\n.sw.on{background:#000}.sw.on::after{inset-inline-start:27px}\n.sh2{font-size:20px;font-weight:800;color:var(--mute);margin:18px 20px 10px}\n.xtn{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-weight:700}\n.xtn span{flex:1}\n.xnote{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin:0 16px 12px}\n";
 
-  css.textContent = CSS_TEXT + ".sl{white-space:nowrap}nav button span{filter:none!important;display:flex;height:26px;align-items:center}nav button span svg{width:26px;height:26px;stroke-width:1.8}nav button.on span{color:#E8A900}.rd{width:26px;height:26px;border-radius:50%;border:2px solid #cfcfcf;margin-inline-start:auto;flex:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}.rd.on{background:#111;border-color:#111}.rd svg{width:16px;height:16px}.sv{font-size:13px;white-space:nowrap}";
+  css.textContent = CSS_TEXT + ".sl{white-space:nowrap}.xtg label{display:block;font-weight:700;margin:10px 0 6px}.xtg .xin{width:100%}nav button span{filter:none!important;display:flex;height:26px;align-items:center}nav button span svg{width:26px;height:26px;stroke-width:1.8}nav button.on span{color:#E8A900}.rd{width:26px;height:26px;border-radius:50%;border:2px solid #cfcfcf;margin-inline-start:auto;flex:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}.rd.on{background:#111;border-color:#111}.rd svg{width:16px;height:16px}.sv{font-size:13px;white-space:nowrap}";
   document.head.appendChild(css);
 
   /* ---------- small helpers ---------- */
@@ -38,6 +38,8 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   const ERR = {
     insufficient_balance: ["رصيدك غير كافٍ. اشحن رصيدك أولًا.", "Insufficient balance. Top up first.", "Số dư không đủ. Hãy nạp tiền trước.", "余额不足，请先充值。"],
     out_of_stock: ["الكمية غير متوفرة.", "Not enough stock.", "Không đủ hàng.", "库存不足。"],
+    tag_required: ["أدخل Tag المزرعة وسعة المخزن.", "Enter your farm Tag and storage capacity.", "Nhập Tag nông trại và sức chứa kho.", "请输入农场 Tag 和仓库容量。"],
+    tag_limit: ["تجاوزت الحد الأقصى لهذا الـ Tag.", "Limit reached for this Tag.", "Đã đạt giới hạn cho Tag này.", "此 Tag 已达上限。"],
     limit_exceeded: ["تجاوزت الحد المسموح للطلب الواحد.", "Over the per-order limit.", "Vượt quá giới hạn mỗi đơn.", "超出单笔订单限制。"],
     out_of_limits: ["المبلغ خارج الحدود المسموحة.", "Amount outside the allowed limits.", "Số tiền ngoài giới hạn cho phép.", "金额超出允许范围。"],
     network: ["تعذّر الاتصال بالخادم.", "Can't reach the server.", "Không kết nối được máy chủ.", "无法连接服务器。"],
@@ -67,6 +69,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
 
   /* ---------- UI strings (4 languages) ---------- */
   const U = {
+    ftag: ["Tag المزرعة", "Farm Tag", "Tag nông trại", "农场 Tag"], fcap: ["سعة المخزن", "Storage capacity", "Sức chứa kho", "仓库容量"],
     pack: ["السعة", "Count", "Số lượng gói", "数量"], limit: ["الحد المسموح", "Max per order", "Tối đa mỗi đơn", "每单上限"], maint: ["تحت الصيانة", "Under maintenance", "Đang bảo trì", "维护中"], retry: ["إعادة المحاولة", "Try again", "Thử lại", "重试"],
     items: ["عنصر", "items", "mục", "项"], nocat: ["لا توجد أقسام بعد.", "No sections yet.", "Chưa có mục nào.", "暂无分类。"], noprod: ["لا توجد منتجات في هذا القسم.", "No products in this section.", "Không có sản phẩm trong mục này.", "此分类暂无商品。"],
     price: ["السعر", "Price", "Giá", "价格"], qty: ["العدد", "Qty", "SL", "数量"], buy: ["شراء", "Buy", "Mua", "购买"], sold: ["نفد", "Sold out", "Hết hàng", "售罄"], total: ["الإجمالي", "Total", "Tổng", "合计"],
@@ -214,7 +217,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   function drawConfirm() {
     const o = HD.cf; if (!o) return;
     const tot = cv(o.usdt), have = bal(), low = have < tot;
-    xsheet(`<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${o.extra || ""}
+    xsheet(`<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${typeof o.extra == "function" ? o.extra() : o.extra || ""}
       <div class="xr" style="margin:8px 0">${CURS.map((c) => `<button class="xchip ${c == HD.cur ? "on" : ""}" data-x="cc:${c}">${c}</button>`).join("")}</div>
       <div class="line"><span>${xt("total")}</span><b>${amt(tot)}</b></div><div class="line"><span>${xt("yourbal")}</span><span>${amt(have)}</span></div><div id="xerr"></div>
       ${low ? `<div class="xerr">${emsg({ error: "insufficient_balance" })}</div><button class="go" data-x="gotop"><span>${xt("topup")}</span></button>` : `<button class="go" id="xgo" data-x="dobuy"><span>${xt("confirm")}</span></button>`}
@@ -245,7 +248,14 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!p) return;
     const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
     const q = Math.min(HD.qty[id] || 1, cap);
-    xconfirm({ title: p.name, lines: `${xt("qty")}: ${q}`, usdt: p.price * q, run: (cur, key) => purchase("checkout", { kind: "cart", lines: [{ id: p.id, q }], currency: cur, idem_key: key }) });
+    const o = { title: p.name, lines: `${xt("qty")}: ${q}`, usdt: p.price * q, tag: "", cap: "" };
+    if (p.need_tag) o.extra = () => `<div class="xtg"><label>${xt("ftag")}</label><input class="xin" id="xtag" dir="ltr" maxlength="16" placeholder="#ABC123" autocomplete="off" value="${E(o.tag)}"><label>${xt("fcap")}</label><input class="xin" id="xcap" type="number" inputmode="numeric" min="1" placeholder="${xt("fcap")}" value="${E(o.cap)}"></div>`;
+    o.run = (cur, key) => {
+      const tag = String(o.tag || "").toUpperCase().replace(/^#/, "").trim(), c = Math.floor(Number(o.cap)) || 0;
+      if (p.need_tag && (!/^[0-9A-Z]{3,15}$/.test(tag) || c < 1)) return Promise.reject({ error: "tag_required" });
+      return purchase("checkout", { kind: "cart", lines: [{ id: p.id, q }], currency: cur, idem_key: key, tag: p.need_tag ? tag : undefined, cap: p.need_tag ? c : undefined });
+    };
+    xconfirm(o);
   }
   confirmOpt = function () {
     const s = S[L], m = sums();
@@ -286,7 +296,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   const ordCard = (o) => {
     const lines = (o.lines || []).map((l) => `<div class="xr sp"><span>${E(l.n)} × ${l.q}</span>${l.prize ? `<b>🎁 ${E(l.prize)}</b>` : ""}</div>`).join("");
-    return `<div class="xc"><div class="xr sp"><b>#${o.id} · ${E(o.name)}</b>${stChip(o.status)}</div><small>${E(Z(...(KIND[o.kind] || [o.kind, o.kind, o.kind, o.kind])))} · ${xt("total")}: ${amt(o.total, o.currency)} · ${fdate(o.created_at)}</small>${lines}` +
+    return `<div class="xc"><div class="xr sp"><b>#${o.id} · ${E(o.name)}</b>${stChip(o.status)}</div><small>${E(Z(...(KIND[o.kind] || [o.kind, o.kind, o.kind, o.kind])))} · ${xt("total")}: ${amt(o.total, o.currency)} · ${fdate(o.created_at)}</small>${o.farm_tag ? `<small dir="ltr" style="text-align:start">Tag: #${E(o.farm_tag)} · ${xt("fcap")}: ${o.farm_cap}</small>` : ""}${lines}` +
       (o.delivery ? `<div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : o.kind == "farm" && !["done", "cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : "") + `</div>`;
   };
   function paintOrders() {
@@ -609,6 +619,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       const tr = $("trow"); if (tr) tr.innerHTML = row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet");
     }
   });
+  document.addEventListener("input", (e) => { if (HD.cf && e.target.id == "xtag") HD.cf.tag = e.target.value; else if (HD.cf && e.target.id == "xcap") HD.cf.cap = e.target.value; });
   document.addEventListener("keydown", (e) => { if (e.key == "Enter" && e.target.id == "xmsg") { e.preventDefault(); sendMsg(); } });
 
   setInterval(() => {

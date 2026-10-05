@@ -41,11 +41,13 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     }
     case "cat_del": await run(`DELETE FROM products WHERE category_id = $1 AND kind = 'tool'`, [id]); await run(`DELETE FROM categories WHERE id = $1`, [id]); return "تم حذف القسم ومنتجاته";
     case "prod_save": {
-      const name = f("name").trim().slice(0, 100), cat = Number(f("category_id")), price = Math.max(0, Number(f("price")) || 0), qty = Math.max(-1, Math.floor(Number(f("qty")) || 0)), active = bool(f("active")), pack = Math.max(1, Math.floor(Number(f("pack")) || 1)), maxo = Math.max(0, Math.floor(Number(f("max_order")) || 0)), descr = f("descr").trim().slice(0, 500);
+      const name = f("name").trim().slice(0, 100), cat = Number(f("category_id")), price = Math.max(0, Number(f("price")) || 0), active = bool(f("active")), needTag = bool(f("need_tag"));
+      const qtyRaw = f("qty").trim(), qty = qtyRaw === "" ? -1 : Math.max(-1, Math.floor(Number(qtyRaw)) || 0);
+      const maxo = Math.max(0, Math.floor(Number(f("max_order"))) || 0), descr = f("descr").trim().slice(0, 500);
       if (!name || !(cat > 0)) return "الاسم والقسم مطلوبان";
       if (!(price > 0)) return "أدخل سعرًا أكبر من صفر (بالـ USDT)";
-      if (id > 0) { await run(`UPDATE products SET name=$1, category_id=$2, price=$3, qty=$4, active=$5, pack=$6, max_order=$7, descr=$8 WHERE id=$9`, [name, cat, price, qty, active, pack, maxo, descr, id]); if (img) await run(`UPDATE products SET image = $1 WHERE id = $2`, [img, id]); }
-      else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at, pack, max_order, kind, descr) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'tool',$10)`, [cat, name, img || null, price, qty, active, t, pack, maxo, descr]);
+      if (id > 0) { await run(`UPDATE products SET name=$1, category_id=$2, price=$3, qty=$4, active=$5, max_order=$6, need_tag=$7, descr=$8 WHERE id=$9`, [name, cat, price, qty, active, maxo, needTag, descr, id]); if (img) await run(`UPDATE products SET image = $1 WHERE id = $2`, [img, id]); if (f("remove_image") === "1" && !img) await run(`UPDATE products SET image = NULL WHERE id = $1`, [id]); }
+      else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at, pack, max_order, kind, descr, need_tag) VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,'tool',$9,$10)`, [cat, name, img || null, price, qty, active, t, maxo, descr, needTag]);
       return "تم حفظ المنتج";
     }
     case "prod_del": await run(`DELETE FROM products WHERE id = $1 AND kind = 'tool'`, [id]); return "تم حذف المنتج";

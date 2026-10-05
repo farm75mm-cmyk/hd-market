@@ -33,7 +33,8 @@ async function ordersList(ctx: Ctx, where: string, params: any[], opts: { delive
     let lines: any[] = []; try { lines = o.lines ? JSON.parse(o.lines) : []; } catch {}
     const usdt = num(o.usdt) || toUsdt(num(o.total), o.currency ?? "JOD", rt);
     const pending = ["new", "processing"].includes(o.status);
-    const lineHtml = lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "";
+    const tagHtml = o.farm_tag ? `<div class="sm" dir="ltr" style="text-align:right"><b>Tag:</b> #${h(o.farm_tag)} · ${h(t("سعة المخزن"))}: ${num(o.farm_cap)}</div>` : "";
+    const lineHtml = tagHtml + (lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "");
     const act: string[] = [];
     if (pending) {
       if (o.kind === "farm" || o.kind === "random") act.push(F("order_deliver", `${hid("id", o.id)}<div class="row"><input type="text" name="note" placeholder="${h(t("ملاحظة للمشتري (اختياري)"))}" style="min-width:150px"><button class="y">${h(t("تسليم"))}</button></div>`, `&st=${h(ctx.url.searchParams.get("st") ?? "")}`));
@@ -185,13 +186,31 @@ async function categoriesPage(ctx: Ctx): Promise<Page> {
   const back = (title: string) => `<div class="lh"><a class="bk" href="/admin?tab=categories" aria-label="back">${ic("chevR", 22)}</a><h2>${h(title)}</h2></div>`;
   const cat = cats.find((c: any) => Number(c.id) === catId);
   if (cat) {
-    const opts = (sel: any) => cats.map((c: any) => `<option value="${c.id}"${String(c.id) === String(sel) ? " selected" : ""}>${h(c.name)}</option>`).join("");
-    let out = back(cat.name);
-    const prodForm = (p: any) => F("prod_save", `${p ? hid("id", p.id) : ""}<div class="fg">${field(t("اسم العنصر"), `<input type="text" class="w" name="name" value="${h(p?.name ?? "")}" required>`)}${field(t("القسم"), `<select name="category_id" class="w">${opts(p?.category_id ?? cat.id)}</select>`)}${field(t("الكمية (-1 = غير محدودة)"), `<input type="number" class="w" min="-1" name="qty" value="${p ? num(p.qty) : ""}" required>`)}${field(t("السعة (قطع في العبوة)"), `<input type="number" class="w" min="1" name="pack" value="${p ? num(p.pack) || 1 : 1}">`)}${field(t("التاج: حد الطلب الواحد (0 = بلا حد)"), `<input type="number" class="w" min="0" name="max_order" value="${p ? num(p.max_order) : 0}">`)}${field(t("السعر (USDT)"), `<input type="number" class="w" step="any" min="0" name="price" value="${p ? num(p.price) : ""}" required>`)}</div><div class="row" style="margin-top:10px">${sw("active", t("ظاهر للمستخدمين"), !p || !!num(p.active))}${picker(p ? imgUrl("p", p) : null)}<button class="${p ? "" : "y"}">${h(t(p ? "حفظ" : "إضافة"))}</button></div>`, `&cat=${cat.id}`);
-    out += `<div class="box"><h2>${h(t("إضافة منتج"))}</h2>${prodForm(null)}</div><h2>${h(t("المنتجات"))}</h2>`;
-    const prods = await run(`SELECT id, category_id, name, price, qty, pack, max_order, active, descr, ${IMG()} FROM products WHERE kind = 'tool' AND category_id = $1 ORDER BY id LIMIT 300`, [cat.id]);
-    for (const p of prods) out += `<div class="item">${prodForm(p)}<div class="acts">${F("prod_del", `${hid("id", p.id)}<button class="r s" onclick="return confirm('${h(t("حذف المنتج؟"))}')">${h(t("حذف"))}</button>`, `&cat=${cat.id}`)}</div></div>`;
-    return { title: t("أقسام المتجر والأدوات"), body: out, js: PICK_JS };
+    const prods = await run(`SELECT id, category_id, name, price, qty, max_order, need_tag, active, descr, ${IMG()} FROM products WHERE kind = 'tool' AND category_id = $1 ORDER BY id LIMIT 300`, [cat.id]);
+    const psheet = (p: any) => {
+      const img = p ? imgUrl("p", p) : null;
+      const form = F("prod_save", `${p ? hid("id", p.id) : ""}${hid("category_id", cat.id)}<input type="hidden" name="remove_image" value="">
+        <label class="bigimg"><img class="th" ${img ? `src="${h(img)}"` : 'style="visibility:hidden"'} alt=""><span class="cam">${ic("camera", 20)}</span><input type="hidden" name="image" value=""><input class="pick" type="file" accept="image/*" hidden></label>
+        <button type="button" class="gb" onclick="var f=this.form;f.remove_image.value=1;f.image.value='';f.querySelector('img.th').style.visibility='hidden'">${h(t("إزالة الصورة"))} ${ic("trash", 18)}</button>
+        ${field(t("الاسم"), `<input type="text" class="w" name="name" value="${h(p?.name ?? "")}" required>`)}
+        ${field(t("الوصف"), `<textarea class="w" name="descr" rows="2">${h(p?.descr ?? "")}</textarea>`)}
+        ${field(t("السعر (USDT)"), `<input type="number" class="w" step="any" min="0" name="price" value="${p ? num(p.price) : ""}" required>`)}
+        ${field(t("الكمية المتوفرة (اتركه فارغاً = غير محدود)"), `<input type="number" class="w" min="0" name="qty" placeholder="${h(t("غير محدود"))}" value="${p && num(p.qty) >= 0 ? num(p.qty) : ""}">`)}
+        <label class="tgr"><span>${h(t("يتطلب إدخال Tag المزرعة وسعة المخزن"))}</span><input class="tg" type="checkbox" name="need_tag" value="1"${p && num(p.need_tag) ? " checked" : ""}></label>
+        ${field(t("الحد الأقصى لكل Tag (اتركه فارغاً = بدون حد)"), `<input type="number" class="w" min="0" name="max_order" placeholder="${h(t("بدون حد"))}" value="${p && num(p.max_order) > 0 ? num(p.max_order) : ""}">`)}
+        <label class="tgr"><span>${h(t("ظاهر للمستخدمين"))}</span><input class="tg" type="checkbox" name="active" value="1"${!p || num(p.active) ? " checked" : ""}></label>
+        <button class="k">${h(t("حفظ"))}</button>`, `&cat=${cat.id}`);
+      const del = p ? F("prod_del", `${hid("id", p.id)}<button class="gb rd" onclick="return confirm('${h(t("حذف المنتج؟"))}')">${h(t("حذف"))} ${ic("trash", 18)}</button>`, `&cat=${cat.id}`) : "";
+      return `<div class="shw" id="p_${p ? p.id : "new"}" hidden><div class="shb" data-close="1"></div><div class="shs"><i class="grip"></i><h2>${h(p ? p.name : t("إضافة منتج"))}</h2>${form}${del}</div></div>`;
+    };
+    let rows = "", sheets = psheet(null);
+    for (const p of prods) {
+      const img = imgUrl("p", p);
+      rows += `<a class="lr" href="#" data-sh="p_${p.id}">${img ? `<img class="li" src="${h(img)}" alt="">` : `<span class="li">${tabTile("categories", 62)}</span>`}<span class="lt"><b>${h(p.name)}</b><small dir="ltr" style="text-align:right">${usdtFmt(num(p.price))} USDT · ${num(p.qty) < 0 ? "∞" : num(p.qty)}${num(p.active) ? "" : " · " + h(t("مخفي"))}</small></span>${ic("chevL", 20)}</a>`;
+      sheets += psheet(p);
+    }
+    const js = PICK_JS + `<script>document.addEventListener("click",function(e){var a=e.target.closest("[data-sh]");if(a){e.preventDefault();document.getElementById(a.dataset.sh).hidden=false;document.body.style.overflow="hidden";return}if(e.target.dataset&&e.target.dataset.close){var w=e.target.closest(".shw");w.hidden=true;document.body.style.overflow=""}});</script>`;
+    return { title: t("أقسام المتجر والأدوات"), body: `<div class="lh"><a class="bk" href="/admin?tab=categories" aria-label="back">${ic("chevR", 22)}</a><h2>${h(t("إدارة عناصر القسم"))}</h2><a class="plus" href="#" data-sh="p_new" aria-label="add">${ic("plus", 26)}</a></div>` + (rows ? `<div class="lc">${rows}</div>` : `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد عناصر في هذا القسم."))}</div>`) + sheets, js };
   }
   // list view
   const cnt = async (q: string) => await count(q);
