@@ -55,6 +55,8 @@ try { await run(`ALTER TABLE users ADD COLUMN balance DOUBLE PRECISION NOT NULL 
 await run(`CREATE TABLE IF NOT EXISTS categories (id ${serial}, name TEXT NOT NULL, image TEXT, sort INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS products (id ${serial}, category_id BIGINT NOT NULL, name TEXT NOT NULL, image TEXT, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   qty INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
+try { await run(`ALTER TABLE categories ADD COLUMN name_en TEXT NOT NULL DEFAULT ''`); } catch {}
+try { await run(`ALTER TABLE categories ADD COLUMN active INT NOT NULL DEFAULT 1`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN pack INT NOT NULL DEFAULT 1`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN max_order INT NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);

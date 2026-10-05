@@ -31,8 +31,12 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     // ----- store: categories & tool products -----
     case "cat_save": {
       const name = f("name").trim().slice(0, 60); if (!name) return "اسم القسم مطلوب";
-      if (id > 0) { await run(`UPDATE categories SET name = $1, sort = $2 WHERE id = $3`, [name, Number(f("sort")) || 0, id]); if (img) await run(`UPDATE categories SET image = $1 WHERE id = $2`, [img, id]); }
-      else await run(`INSERT INTO categories (name, image, sort, created_at) VALUES ($1,$2,$3,$4)`, [name, img || null, Number(f("sort")) || 0, t]);
+      const nameEn = f("name_en").trim().slice(0, 60), sort = Number(f("sort")) || 0, active = bool(f("active"));
+      if (id > 0) {
+        await run(`UPDATE categories SET name = $1, name_en = $2, sort = $3, active = $4 WHERE id = $5`, [name, nameEn, sort, active, id]);
+        if (f("remove_image") === "1" && !img) await run(`UPDATE categories SET image = NULL WHERE id = $1`, [id]);
+        if (img) await run(`UPDATE categories SET image = $1 WHERE id = $2`, [img, id]);
+      } else await run(`INSERT INTO categories (name, name_en, image, sort, active, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [name, nameEn, img || null, sort, active, t]);
       return "تم حفظ القسم";
     }
     case "cat_del": await run(`DELETE FROM products WHERE category_id = $1 AND kind = 'tool'`, [id]); await run(`DELETE FROM categories WHERE id = $1`, [id]); return "تم حذف القسم ومنتجاته";

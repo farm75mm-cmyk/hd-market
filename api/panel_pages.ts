@@ -180,16 +180,13 @@ async function auditPage(ctx: Ctx): Promise<Page> {
 // ---------- store pages ----------
 async function categoriesPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid, url } = ctx;
-  const sp = url.searchParams, catId = Number(sp.get("cat")) || 0, isNew = sp.get("new") === "1";
-  const cats = await run(`SELECT id, name, sort, ${IMG()} FROM categories ORDER BY sort, id`);
+  const sp = url.searchParams, catId = Number(sp.get("cat")) || 0;
+  const cats = await run(`SELECT id, name, name_en, sort, active, ${IMG()} FROM categories ORDER BY sort, id`);
   const back = (title: string) => `<div class="lh"><a class="bk" href="/admin?tab=categories" aria-label="back">${ic("chevR", 22)}</a><h2>${h(title)}</h2></div>`;
-  if (isNew) {
-    return { title: t("أقسام المتجر والأدوات"), body: back(t("إضافة قسم")) + `<div class="box">${F("cat_save", `<div class="row"><input type="text" class="grow" name="name" placeholder="${h(t("اسم القسم"))}" required><input type="number" name="sort" placeholder="${h(t("الترتيب"))}" style="width:90px">${picker(null)}<button class="y">${h(t("إضافة"))}</button></div>`, "")}</div>`, js: PICK_JS };
-  }
   const cat = cats.find((c: any) => Number(c.id) === catId);
   if (cat) {
     const opts = (sel: any) => cats.map((c: any) => `<option value="${c.id}"${String(c.id) === String(sel) ? " selected" : ""}>${h(c.name)}</option>`).join("");
-    let out = back(cat.name) + `<div class="item">${F("cat_save", `${hid("id", cat.id)}<div class="row"><input type="text" class="grow" name="name" value="${h(cat.name)}"><input type="number" name="sort" value="${num(cat.sort)}" style="width:90px">${picker(imgUrl("c", cat))}<button>${h(t("حفظ"))}</button></div>`, `&cat=${cat.id}`)}<div class="acts">${F("cat_del", `${hid("id", cat.id)}<button class="r s" onclick="return confirm('${h(t("حذف القسم وكل منتجاته؟"))}')">${h(t("حذف القسم"))}</button>`, "")}</div></div>`;
+    let out = back(cat.name);
     const prodForm = (p: any) => F("prod_save", `${p ? hid("id", p.id) : ""}<div class="fg">${field(t("اسم العنصر"), `<input type="text" class="w" name="name" value="${h(p?.name ?? "")}" required>`)}${field(t("القسم"), `<select name="category_id" class="w">${opts(p?.category_id ?? cat.id)}</select>`)}${field(t("الكمية (-1 = غير محدودة)"), `<input type="number" class="w" min="-1" name="qty" value="${p ? num(p.qty) : ""}" required>`)}${field(t("السعة (قطع في العبوة)"), `<input type="number" class="w" min="1" name="pack" value="${p ? num(p.pack) || 1 : 1}">`)}${field(t("التاج: حد الطلب الواحد (0 = بلا حد)"), `<input type="number" class="w" min="0" name="max_order" value="${p ? num(p.max_order) : 0}">`)}${field(t("السعر (USDT)"), `<input type="number" class="w" step="any" min="0" name="price" value="${p ? num(p.price) : ""}" required>`)}</div><div class="row" style="margin-top:10px">${sw("active", t("ظاهر للمستخدمين"), !p || !!num(p.active))}${picker(p ? imgUrl("p", p) : null)}<button class="${p ? "" : "y"}">${h(t(p ? "حفظ" : "إضافة"))}</button></div>`, `&cat=${cat.id}`);
     out += `<div class="box"><h2>${h(t("إضافة منتج"))}</h2>${prodForm(null)}</div><h2>${h(t("المنتجات"))}</h2>`;
     const prods = await run(`SELECT id, category_id, name, price, qty, pack, max_order, active, descr, ${IMG()} FROM products WHERE kind = 'tool' AND category_id = $1 ORDER BY id LIMIT 300`, [cat.id]);
@@ -198,18 +195,35 @@ async function categoriesPage(ctx: Ctx): Promise<Page> {
   }
   // list view
   const cnt = async (q: string) => await count(q);
-  const row = (href: string, img: string, title: string, sub: string) => `<a class="lr" href="${href}">${img}<span class="lt"><b>${h(title)}</b><small>${h(sub)}</small></span>${ic("chevL", 20)}</a>`;
+  const sheet = (c: any) => {
+    const img = c ? imgUrl("c", c) : null;
+    const form = F("cat_save", `${c ? hid("id", c.id) : ""}<input type="hidden" name="remove_image" value="">
+      <label class="bigimg"><img class="th" ${img ? `src="${h(img)}"` : 'style="visibility:hidden"'} alt=""><span class="cam">${ic("camera", 20)}</span><input type="hidden" name="image" value=""><input class="pick" type="file" accept="image/*" hidden></label>
+      <p class="hint" style="text-align:right">${h(t("اضغط على الصورة لتغييرها — تظهر في واجهة المتجر"))}</p>
+      <button type="button" class="gb" onclick="var f=this.form;f.remove_image.value=1;f.image.value='';f.querySelector('img.th').style.visibility='hidden'">${h(t("إزالة الصورة"))} ${ic("trash", 18)}</button>
+      ${field(t("الاسم بالعربية"), `<input type="text" class="w" name="name" value="${h(c?.name ?? "")}" required>`)}
+      ${field(t("الاسم بالإنجليزية"), `<input type="text" class="w" name="name_en" value="${h(c?.name_en ?? "")}" dir="ltr" style="text-align:left">`)}
+      ${field(t("الترتيب (رقم أصغر = أعلى)"), `<input type="number" class="w" name="sort" value="${c ? num(c.sort) : cats.length + 1}">`)}
+      <label class="tgr"><span>${h(t("ظاهر للمستخدمين"))}</span><input class="tg" type="checkbox" name="active" value="1"${!c || num(c.active) ? " checked" : ""}></label>
+      <button class="k">${h(t("حفظ"))}</button>`, "");
+    const extra = c ? `<a class="gb" href="/admin?tab=categories&cat=${c.id}">${h(t("إدارة محتوى القسم"))} ${ic("box", 18)}</a>${F("cat_del", `${hid("id", c.id)}<button class="gb rd" onclick="return confirm('${h(t("حذف القسم وكل منتجاته؟"))}')">${h(t("حذف"))} ${ic("trash", 18)}</button>`, "")}` : "";
+    return `<div class="shw" id="s_${c ? c.id : "new"}" hidden><div class="shb" data-close="1"></div><div class="shs"><i class="grip"></i><h2>${h(c ? c.name : t("إضافة قسم"))}</h2>${form}${extra}</div></div>`;
+  };
+  const row = (href: string, img: string, title: string, sub: string, sh = "") => `<a class="lr" href="${href}"${sh ? ` data-sh="${sh}"` : ""}>${img}<span class="lt"><b>${h(title)}</b><small>${h(sub)}</small></span>${ic("chevL", 20)}</a>`;
   const tileImg = (tab: string) => `<span class="li">${tabTile(tab, 62)}</span>`;
   let rows = row("/admin?tab=farms", tileImg("farms"), t("المزارع") + " · Farms", `${await cnt(`SELECT COUNT(*) c FROM farms WHERE active = 1 AND sold = 0`)} ${t("عنصر")}`);
+  let sheets = sheet(null);
   for (const c of cats) {
     const n = await cnt(`SELECT COUNT(*) c FROM products WHERE kind = 'tool' AND category_id = ${Number(c.id)}`);
     const img = imgUrl("c", c);
-    rows += row(`/admin?tab=categories&cat=${c.id}`, img ? `<img class="li" src="${h(img)}" alt="">` : tileImg("categories"), c.name, `${n} ${t("عنصر")}`);
+    rows += row(`/admin?tab=categories&cat=${c.id}`, img ? `<img class="li" src="${h(img)}" alt="">` : tileImg("categories"), c.name_en ? `${c.name_en} · ${c.name}` : c.name, `${n} ${t("عنصر")}${num(c.active) ? "" : " · " + t("مخفي")}`, `s_${c.id}`);
+    sheets += sheet(c);
   }
   rows += row("/admin?tab=opt_prices", tileImg("opt_prices"), t("منتجات اختياري"), `${await cnt(`SELECT COUNT(*) c FROM opt_items WHERE active = 1`)} ${t("عنصر")}`);
   rows += row("/admin?tab=codes", tileImg("codes"), t("أكواد الاشتراك"), `${await cnt(`SELECT COUNT(*) c FROM sub_codes WHERE status = 'available'`)} ${t("عنصر")}`);
   rows += row("/admin?tab=random", tileImg("random"), t("المنتجات العشوائية"), `${await cnt(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`)} ${t("عنصر")}`);
-  return { title: t("أقسام المتجر والأدوات"), body: `<div class="lh"><h2>${h(t("أقسام المتجر"))}</h2><a class="plus" href="/admin?tab=categories&new=1" aria-label="add">${ic("plus", 26)}</a></div><div class="lc">${rows}</div>` };
+  const js = PICK_JS + `<script>document.addEventListener("click",function(e){var a=e.target.closest("[data-sh]");if(a){e.preventDefault();document.getElementById(a.dataset.sh).hidden=false;document.body.style.overflow="hidden";return}if(e.target.dataset&&e.target.dataset.close){var w=e.target.closest(".shw");w.hidden=true;document.body.style.overflow=""}});</script>`;
+  return { title: t("أقسام المتجر والأدوات"), body: `<div class="lh"><h2>${h(t("أقسام المتجر"))}</h2><a class="plus" href="#" data-sh="s_new" aria-label="add">${ic("plus", 26)}</a></div><div class="lc">${rows}</div>${sheets}`, js };
 }
 async function farmsPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid } = ctx;

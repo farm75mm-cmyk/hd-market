@@ -139,11 +139,11 @@ const prodOut = (p: Row) => ({ id: num(p.id), category_id: num(p.category_id), n
 
 export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async home() {
-    const cats = await run(`SELECT c.id, c.name, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c ORDER BY c.sort, c.id`);
+    const cats = await run(`SELECT c.id, c.name, c.name_en, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c WHERE c.active = 1 ORDER BY c.sort, c.id`);
     const ann = await run(`SELECT id, title, body, ${IMG()}, pinned, created_at FROM announcements WHERE active = 1 ORDER BY pinned DESC, id DESC LIMIT 20`);
     const grp = await run(`SELECT id, name, url, descr, ${IMG()} FROM hd_groups WHERE active = 1 ORDER BY sort, id`);
     return ok({
-      categories: cats.map((c) => ({ id: num(c.id), name: c.name, image: imgUrl("c", c), count: num(c.n) })),
+      categories: cats.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), count: num(c.n) })),
       announcements: ann.map((a) => ({ id: num(a.id), title: a.title, body: a.body, image: imgUrl("n", a), pinned: num(a.pinned), created_at: num(a.created_at) })),
       groups: grp.map((g) => ({ id: num(g.id), name: g.name, url: g.url, descr: g.descr ?? "", image: imgUrl("g", g) })),
       counts: {
@@ -156,9 +156,9 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     });
   },
   async catalog() {
-    const categories = await run(`SELECT id, name, ${IMG()} FROM categories ORDER BY sort, id`);
+    const categories = await run(`SELECT id, name, name_en, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
     const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, descr, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
-    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, image: imgUrl("c", c) })), products: products.map(prodOut) });
+    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c) })), products: products.map(prodOut) });
   },
   async opt_items() {
     const price = await optPrice();

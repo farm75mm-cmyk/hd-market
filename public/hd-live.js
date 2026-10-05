@@ -163,6 +163,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const r = await api("catalog", {});
     if (!r.ok) return;
     HD.cats = r.categories; HD.prods = r.products;
+    HD.cats.forEach((c) => { c.name_ar = c.name; Object.defineProperty(c, "name", { get() { return L != "ar" && this.name_en ? this.name_en : this.name_ar; } }); });
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
     if ($("sheet").classList.contains("show") && HD.open) openXCat(HD.open);
   }
