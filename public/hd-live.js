@@ -67,7 +67,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
 
   /* ---------- UI strings (4 languages) ---------- */
   const U = {
-    pack: ["العدد", "Count", "Số lượng gói", "数量"], limit: ["الحد المسموح", "Max per order", "Tối đa mỗi đơn", "每单上限"], maint: ["تحت الصيانة", "Under maintenance", "Đang bảo trì", "维护中"], retry: ["إعادة المحاولة", "Try again", "Thử lại", "重试"],
+    pack: ["السعة", "Count", "Số lượng gói", "数量"], limit: ["الحد المسموح", "Max per order", "Tối đa mỗi đơn", "每单上限"], maint: ["تحت الصيانة", "Under maintenance", "Đang bảo trì", "维护中"], retry: ["إعادة المحاولة", "Try again", "Thử lại", "重试"],
     items: ["عنصر", "items", "mục", "项"], nocat: ["لا توجد أقسام بعد.", "No sections yet.", "Chưa có mục nào.", "暂无分类。"], noprod: ["لا توجد منتجات في هذا القسم.", "No products in this section.", "Không có sản phẩm trong mục này.", "此分类暂无商品。"],
     price: ["السعر", "Price", "Giá", "价格"], qty: ["العدد", "Qty", "SL", "数量"], buy: ["شراء", "Buy", "Mua", "购买"], sold: ["نفد", "Sold out", "Hết hàng", "售罄"], total: ["الإجمالي", "Total", "Tổng", "合计"],
     confirm: ["تأكيد الشراء", "Confirm purchase", "Xác nhận mua", "确认购买"], yourbal: ["رصيدك", "Your balance", "Số dư của bạn", "你的余额"], topup: ["شحن الرصيد", "Top up balance", "Nạp tiền", "充值"],
@@ -197,7 +197,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     $("panel").innerHTML = `<h2>${E(c.name)}</h2>` + (ps.length ? ps.map((p) => {
       const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
       const q = Math.min(HD.qty[p.id] || 1, Math.max(1, cap));
-      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("price")}: <b>${mon(p.price)}</b>${p.qty >= 0 ? ` · ${xt("qty")}: ${p.qty}` : ""}${p.pack > 1 ? ` · ${xt("pack")}: ${p.pack}` : ""}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}` +
+      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("qty")}: ${p.qty < 0 ? "∞" : p.qty}</small><small>${xt("pack")}: ${p.pack > 1 ? p.pack : 1}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}<small>${xt("price")}: <b>${mon(p.price)}</b></small>` +
         (p.qty != 0 ? `<div class="xr"><button class="xs" data-x="q:${p.id}:-1">−</button><b>${q}</b><button class="xs" data-x="q:${p.id}:1">+</button><button class="xbtn" data-x="buy:${p.id}">${xt("buy")}</button></div>` : `<span class="xchip bad">${xt("sold")}</span>`) + `</div></div>`;
     }).join("") : `<p class="empty">${xt("noprod")}</p>`);
     $("sheet").classList.add("show");
