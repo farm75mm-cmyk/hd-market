@@ -452,6 +452,83 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (r.ok) loadChat(true); else { i.value = body; toast(emsg(r)); }
   }
 
+
+  /* ---------- smart assistant (server-driven: flow, FAQ and products come from the admin panel) ---------- */
+  const BOT = SV('<rect x="5" y="8" width="14" height="11" rx="3.5"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1"/><circle cx="9.5" cy="13" r="1" fill="currentColor"/><circle cx="14.5" cy="13" r="1" fill="currentColor"/><path d="M9.5 16.2h5"/><path d="M3 12v3M21 12v3"/>');
+  IK.bot = BOT;
+  HD.ai = { items: [], opts: [], input: null, vars: {}, started: false, lang: "", busy: false, home: true, support: false, go: [] };
+  const aiLang = () => (L == "ar" ? "ar" : "en");
+  const aiTitle = () => Z("المساعد الذكي", "Smart Assistant", "Trợ lý thông minh", "智能助手");
+  const aiOn = () => !!(HD.cfg && HD.cfg.ai && HD.cfg.ai.on);
+  const aiCss = document.createElement("style");
+  aiCss.textContent = ".aiw{display:flex;flex-direction:column;min-height:calc(100vh - 330px)}.ail{display:flex;flex-direction:column;gap:10px;padding:6px 0 10px}" +
+    ".aib,.aiu{max-width:86%;padding:11px 14px;border-radius:18px;font-weight:600;font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word}" +
+    ".aib{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-top-right-radius:6px}.aiu{align-self:flex-end;background:#111;color:#fff;border-top-left-radius:6px}" +
+    ".aib b.ai-h{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute);margin-bottom:4px}.aib b.ai-h svg{width:16px;height:16px}" +
+    ".aio{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 12px}.aoc{border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:10px 16px;font:700 15px inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}" +
+    ".aoc:active{background:var(--field)}.aoc.hm{border-style:dashed;color:var(--mute)}.aoc.sp{background:#111;color:#fff;border-color:#111}" +
+    ".air{align-self:stretch;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}" +
+    ".air .rt{display:flex;align-items:center;justify-content:space-between;gap:10px}.air .rt b{font-size:16px}.air .rp{font-weight:900;color:#111;background:#FCE8A8;border-radius:99px;padding:3px 12px;white-space:nowrap;direction:ltr}" +
+    ".air small{color:var(--mute);font-weight:600}.air .rg{align-self:flex-start;border:0;background:#111;color:#fff;border-radius:99px;padding:8px 16px;font:800 14px inherit;font-family:inherit;cursor:pointer}" +
+    ".aiin{position:sticky;bottom:150px;background:var(--bg);padding:8px 0;gap:8px;flex-wrap:nowrap;align-items:center}.aiin .xin{margin:0;flex:1}" +
+    ".aifab{position:fixed;z-index:30;bottom:150px;inset-inline-start:max(14px,calc(50% - 206px));width:56px;height:56px;border-radius:50%;border:0;background:#111;color:#E8A900;display:grid;place-items:center;box-shadow:0 8px 22px rgba(0,0,0,.28);cursor:pointer}" +
+    ".aifab svg{width:30px;height:30px}.aity{opacity:.6}";
+  document.head.appendChild(aiCss);
+  function aiFab() {
+    document.querySelectorAll(".aifab").forEach((e) => e.remove());
+    if (!TOKEN || $("app").hidden || tab != 0 || HD.page || axe || opt || !aiOn()) return;
+    const b = document.createElement("button");
+    b.className = "aifab"; b.dataset.x = "aiopen"; b.setAttribute("aria-label", aiTitle()); b.innerHTML = BOT;
+    $("app").appendChild(b);
+  }
+  const _lcfg = loadCfg;
+  loadCfg = async function () { await _lcfg(); aiFab(); };
+  function aiApply(r) {
+    const A = HD.ai;
+    A.opts = r.options || []; A.input = r.input || null; A.vars = r.vars || {}; A.support = !!r.support;
+    (r.messages || []).forEach((m, i, a) => A.items.push({ who: "bot", text: m, results: i == a.length - 1 ? r.results || [] : [] }));
+    if (!(r.messages || []).length && (r.results || []).length) A.items.push({ who: "bot", text: "", results: r.results });
+  }
+  async function aiStart() {
+    const A = HD.ai; A.items = []; A.opts = []; A.vars = {}; A.input = null; A.lang = aiLang(); A.started = true; A.busy = true; paintAi();
+    const r = await call("ai_open", { lang: A.lang });
+    A.busy = false;
+    if (r.ok && r.on) { aiApply(r); A.home = true; }
+    else { A.started = false; if (r.ok) { HD.cfg = HD.cfg || {}; HD.cfg.ai = { on: false }; } toast(r.ok ? Z("المساعد غير متاح حاليًا.", "The assistant is currently unavailable.", "Trợ lý hiện không khả dụng.", "助手暂不可用。") : emsg(r)); aiBack(); return; }
+    paintAi();
+  }
+  function paintAi() {
+    const A = HD.ai, list = $("ailist"); if (!list) return;
+    A.go = [];
+    const pr = (n) => String(Math.round(n * 10000) / 10000);
+    list.innerHTML = A.items.map((m) => m.who == "user" ? `<div class="aiu">${E(m.text)}</div>` :
+      (m.text ? `<div class="aib">${E(m.text)}</div>` : "") + (m.results || []).map((x) => { A.go.push(x.go); return `<div class="air"><div class="rt"><b>${E(x.name)}</b><span class="rp">${pr(x.price)} USDT</span></div>${x.descr ? `<small>${E(x.descr)}</small>` : ""}<small>${x.level ? Z("المستوى", "Level", "Cấp", "等级") + " " + x.level + " · " : ""}${x.stock < 0 ? Z("متاح", "Available", "Còn hàng", "有货") : Z("المخزون", "Stock", "Tồn kho", "库存") + ": " + x.stock}</small><button class="rg" data-x="aigo:${A.go.length - 1}">${Z("عرض في المتجر", "View in store", "Xem trong cửa hàng", "在商店查看")}</button></div>`; }).join("")).join("") +
+      (A.busy ? `<div class="aib aity">…</div>` : "");
+    const o = $("aiopts");
+    o.innerHTML = A.busy ? "" : A.opts.map((x) => `<button class="aoc" data-x="aiopt:${x.id}">${x.icon ? E(x.icon) + " " : ""}${E(x.label)}</button>`).join("") +
+      (A.support ? `<button class="aoc sp" data-x="gosup">🎧 ${Z("التواصل مع الدعم", "Contact support", "Liên hệ hỗ trợ", "联系客服")}</button>` : "") +
+      (A.items.length > 1 || A.opts.length == 0 ? `<button class="aoc hm" data-x="aiopt:0">🏠 ${Z("القائمة الرئيسية", "Main menu", "Menu chính", "主菜单")}</button>` : "");
+    const q = $("aiq");
+    if (q) q.placeholder = A.input && A.input.key == "level" ? Z("اكتب رقم المستوى…", "Type the level number…", "Nhập cấp độ…", "输入等级…") : A.input && A.input.key == "budget" ? Z("اكتب ميزانيتك بالـ USDT…", "Type your budget in USDT…", "Nhập ngân sách USDT…", "输入预算(USDT)…") : Z("اكتب سؤالك هنا…", "Type your question…", "Nhập câu hỏi…", "输入您的问题…");
+    scrollTo(0, document.body.scrollHeight);
+  }
+  function drawAi() {
+    $("view").innerHTML = `<div class="oh"><button class="bk" data-x="aiback" aria-label="back"></button><h2>🤖 ${aiTitle()}</h2></div><div class="pad aiw"><div class="ail" id="ailist"></div><div class="aio" id="aiopts"></div><div class="xr aiin"><input class="xin" id="aiq" maxlength="300" autocomplete="off"><button class="xbtn" data-x="aisend">${Z("إرسال", "Send", "Gửi", "发送")}</button></div></div>`;
+    if (!HD.ai.started || HD.ai.lang != aiLang()) aiStart(); else paintAi();
+  }
+  function aiBack() { tab = HD.aiFrom || 0; HD.page = null; drawShop(); scrollTo(0, 0); }
+  function aiOpen() { if (tab != 5 || HD.page != "ai") HD.aiFrom = tab == 5 ? 0 : tab; tab = 5; HD.page = "ai"; drawShop(); scrollTo(0, 0); }
+  async function aiSend(text, node, label) {
+    const A = HD.ai; if (A.busy) return;
+    A.items.push({ who: "user", text: label || text }); A.busy = true; paintAi();
+    const r = label ? await call("ai_step", { node, vars: A.vars, lang: aiLang() }) : await call("ai_ask", { text, node: A.input ? A.input.node : 0, vars: A.vars, lang: aiLang() });
+    A.busy = false;
+    if (!$("ailist")) return;
+    if (r.ok) aiApply(r); else { if (r.error == "off") { toast(Z("المساعد غير متاح حاليًا.", "The assistant is currently unavailable.", "Trợ lý hiện không khả dụng.", "助手暂不可用。")); return aiBack(); } toast(emsg(r)); }
+    paintAi();
+  }
+  function aiGo(sel) { tab = 0; HD.page = null; drawShop(); scrollTo(0, 0); setTimeout(() => { const el = document.querySelector(sel); if (el) el.click(); }, 150); }
+
   /* ---------- account: settings entry + sub pages ---------- */
   const row = (icon, label, val, x, extra) => `<button class="sr" data-x="${x}"><span class="si">${icon}</span><span class="sl">${label}</span>${extra || `<span class="sv">${val ? E(val) : ""}${chvR}</span>`}</button>`;
   const subHead = (title, back) => `<div class="oh"><button class="bk" data-x="back:${back}" aria-label="back"></button><h2>${title}</h2></div>`;
@@ -461,7 +538,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
       <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
       ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
-      ${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      ${aiOn() ? row(IK.bot, "🤖 " + aiTitle(), "", "aiopen") : ""}${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
       <div class="sg">${row(IK.dl, xt("chkupd"), APP_VER, "chkupd")}</div>
       <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
   function drawSettings() { HD.page = null; drawShop(); }
@@ -500,6 +577,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const p = HD.page;
     if (p == "settings") drawSettings();
     else if (p == "lang" || p == "tone") drawPick(p);
+    else if (p == "ai") drawAi();
     else if (p == "myfarms") drawFarmsPage();
     else if (p == "myorders") drawOrdersPage();
     else if (p == "alerts") drawAlertsPage();
@@ -561,6 +639,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   drawShop = function () {
     _draw();
     drawBadges();
+    aiFab();
     if (axe || opt) return;
     const v = $("view");
     if (tab == 0) { const t = v.querySelector(".tiles"); if (t) { t.id = "xch"; t.innerHTML = ""; } const h2 = v.querySelector(".sh h2"); if (h2) h2.innerHTML = `${IK.shop} ${S[L].items}`; drawGrid(); }
@@ -641,6 +720,11 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     }
     else if (a == "gosup") { HD.page = null; tab = 4; drawShop(); scrollTo(0, 0); }
     else if (a == "alerts") { HD.page = "alerts"; drawShop(); }
+    else if (a == "aiopen") aiOpen();
+    else if (a == "aiback") aiBack();
+    else if (a == "aisend") { const q = $("aiq"), v = q ? q.value.trim() : ""; if (v) { q.value = ""; aiSend(v, 0, ""); } }
+    else if (a == "aiopt") { const lb = b.textContent.trim(); aiSend("", +i, lb); }
+    else if (a == "aigo") { const g = HD.ai.go[+i] || ""; aiGo(g == "opt" ? '[data-p="1"]' : `[data-x="${g}"]`); }
     else if (a == "myfarms") { HD.page = "myfarms"; drawShop(); }
     else if (a == "myorders") { HD.page = "myorders"; drawShop(); }
     else if (a == "chkupd") checkUpdate();
@@ -670,7 +754,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   });
   document.addEventListener("input", (e) => { if (e.target.id == "xamt") paintInfo(); });
   document.addEventListener("input", (e) => { if (HD.cf && e.target.id == "xtag") HD.cf.tag = e.target.value; else if (HD.cf && e.target.id == "xcap") HD.cf.cap = e.target.value; });
-  document.addEventListener("keydown", (e) => { if (e.key == "Enter" && e.target.id == "xmsg") { e.preventDefault(); sendMsg(); } });
+  document.addEventListener("keydown", (e) => { if (e.key == "Enter" && e.target.id == "xmsg") { e.preventDefault(); sendMsg(); } if (e.key == "Enter" && e.target.id == "aiq") { e.preventDefault(); const v = e.target.value.trim(); if (v) { e.target.value = ""; aiSend(v, 0, ""); } } });
 
   setInterval(() => {
     if (document.hidden) return;

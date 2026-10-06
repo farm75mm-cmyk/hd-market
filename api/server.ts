@@ -6,6 +6,7 @@ import {
 } from "./core";
 import { SHOP, IMG, imgUrl, imgResponse } from "./shop";
 import { admin } from "./panel";
+import { AI } from "./assist";
 
 // ---------- API ----------
 const BASE: Record<string, (b: Row) => Promise<Response>> = {
@@ -116,6 +117,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     return ok({
       maintenance: { on: (await getSet("maint_on")) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
       banner: { on: (await getSet("banner_on")) === "1", text: await getSet("banner_text") },
+      ai: { on: (await getSet("ai_on", "1")) === "1" },
       methods, rates: await getRates(),
       update: { version: (await getSet("upd_version")) || env("UPDATE_VERSION"), url: (await getSet("upd_url")) || env("UPDATE_URL"), notes: (await getSet("upd_notes")) || env("UPDATE_NOTES"), force: ((await getSet("upd_force")) || env("UPDATE_FORCE")) === "1" },
     });
@@ -276,7 +278,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
   },
 };
 
-const API: Record<string, (b: Row) => Promise<Response>> = { ...BASE, ...SHOP };
+const API: Record<string, (b: Row) => Promise<Response>> = { ...BASE, ...SHOP, ...AI };
 
 // ---------- server ----------
 Bun.serve({

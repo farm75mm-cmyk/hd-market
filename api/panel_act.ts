@@ -4,6 +4,7 @@ import {
   reverseOrder, notify, flushPush, isDup, Push, sendPush, pushTo,
 } from "./core";
 import { ADMIN_EMAIL, ADMIN_USER } from "./core";
+import { assistAct } from "./assist";
 import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll } from "./shop";
 
 type F = (k: string) => string;
@@ -29,6 +30,7 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     for (const [k, v] of Object.entries(visibleForm)) if (!HIDE.has(k) && v !== "") det[k] = v.slice(0, 120);
     if (Object.keys(det).length || id) await audit(run, actor(), act, "admin", id || "", det);
   }
+  if (act.startsWith("ai_")) return assistAct(act, f, id);
   switch (act) {
     // ----- panel admins (owner only) -----
     case "admin_add": {
