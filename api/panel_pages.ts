@@ -381,7 +381,9 @@ async function annPage(ctx: Ctx): Promise<Page> {
 async function settingsPage(ctx: Ctx): Promise<Page> {
   const { t, F } = ctx;
   const mo = (await getSet("maint_on")) === "1", bo = (await getSet("banner_on")) === "1";
-  return { title: t("الإعدادات والصيانة"), body: `<div class="box"><h2>${h(t("وضع الصيانة والشريط الإعلاني"))}</h2>${F("set_save", `
+  const fuAt = num(await getSet("force_update", "0"));
+  const fuBox = `<div class="box"><h2>${h(t("تحديث التطبيق لجميع المستخدمين"))}</h2><p class="hint">${h(t("عند الضغط يظهر لكل مستخدم شاشة تحديث بعدّاد من 1 إلى 100 ثم يُعاد تحميل التطبيق بآخر نسخة. المستخدمون غير المتصلين يتحدّثون عند فتح التطبيق."))}</p>${fuAt ? `<p class="sm">${h(t("آخر أمر تحديث"))}: ${fmtT(Math.floor(fuAt / 1000))}</p>` : ""}${F("force_update", `<button class="y" onclick="return confirm('${h(t("إجبار جميع المستخدمين على تحديث التطبيق الآن؟"))}')">${h(t("إجبار الجميع على التحديث الآن"))}</button>`)}</div>`;
+  return { title: t("الإعدادات والصيانة"), body: fuBox + `<div class="box"><h2>${h(t("وضع الصيانة والشريط الإعلاني"))}</h2>${F("set_save", `
     <p>${sw("maint_on", t("تفعيل وضع الصيانة (يُمنع المستخدمون من استخدام التطبيق ويرون الرسالة أدناه)"), mo)}</p>
     <p><textarea name="maint_msg" placeholder="${h(t("رسالة الصيانة"))}">${h(await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا."))}</textarea></p><hr class="sep">
     <p>${sw("banner_on", t("إظهار شريط إعلاني في أعلى التطبيق"), bo)}</p>

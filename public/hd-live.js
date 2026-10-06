@@ -148,7 +148,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   async function loadCfg() {
     const r = await api("config", {});
-    if (r.ok) { HD.cfg = r; applyCfg(); if (!$("app").hidden && tab == 2 && !HD.page) paintMethods(); }
+    if (r.ok) { HD.cfg = r; checkForce(r.force_update); applyCfg(); if (!$("app").hidden && tab == 2 && !HD.page) paintMethods(); }
   }
   async function refreshMe() {
     if (!TOKEN) return;
@@ -453,6 +453,35 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
 
 
+
+  /* ---------- forced update from the admin panel: full-screen 1..100 counter, then reload with the latest version ---------- */
+  const fuCss = document.createElement("style");
+  fuCss.textContent = ".fuo{position:fixed;inset:0;z-index:99999;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center}" +
+    ".fuo .fun{font-size:104px;font-weight:900;line-height:1;color:#E8A900;direction:ltr}.fuo h2{font-size:24px;font-weight:900}.fuo p{color:#bdbdbd;font-weight:600}" +
+    ".fuo .fub{width:min(320px,80%);height:12px;border-radius:99px;background:#333;overflow:hidden}.fuo .fub i{display:block;height:100%;width:0;background:linear-gradient(90deg,#8B5CF6,#E8A900);border-radius:99px}";
+  document.head.appendChild(fuCss);
+  function forceUpdate(id) {
+    if (HD.fuBusy) return; HD.fuBusy = true; LSs("fu", String(id));
+    const o = document.createElement("div"); o.className = "fuo";
+    o.innerHTML = `<h2>${Z("جارٍ تحديث التطبيق", "Updating the app", "Đang cập nhật ứng dụng", "正在更新应用")}</h2><div class="fun" id="fun">1</div><div class="fub"><i id="fui"></i></div><p>${Z("لا تُغلق التطبيق حتى يكتمل التحديث", "Please keep the app open until the update finishes", "Vui lòng không đóng ứng dụng cho đến khi hoàn tất", "更新完成前请勿关闭应用")}</p>`;
+    document.body.appendChild(o);
+    let n = 1;
+    const t = setInterval(() => {
+      n++; const a = $("fun"), b = $("fui"); if (a) a.textContent = n; if (b) b.style.width = n + "%";
+      if (n >= 100) {
+        clearInterval(t);
+        const go = () => location.replace(location.pathname + "?u=" + Date.now());
+        try { if (window.caches) caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k)))).then(() => setTimeout(go, 500), () => setTimeout(go, 500)); else setTimeout(go, 500); } catch (e) { setTimeout(go, 500); }
+      }
+    }, 55);
+  }
+  function checkForce(id) {
+    if (id == null || id === "") return;
+    const last = LSg("fu", null);
+    if (last === null) { LSs("fu", String(id)); return; }
+    if (String(last) !== String(id)) forceUpdate(id);
+  }
+
   /* ---------- smart assistant (server-driven: flow, FAQ and products come from the admin panel) ---------- */
   const BOT = SV('<rect x="5" y="8" width="14" height="11" rx="3.5"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1"/><circle cx="9.5" cy="13" r="1" fill="currentColor"/><circle cx="14.5" cy="13" r="1" fill="currentColor"/><path d="M9.5 16.2h5"/><path d="M3 12v3M21 12v3"/>');
   IK.bot = BOT;
@@ -601,6 +630,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!TOKEN || $("app").hidden) return;
     const r = await call("notif_poll", {});
     if (r.ok) {
+      checkForce(r.fu);
       HD.unread = r.unread;
       if (r.last_id && r.last_id > HD.lastN) {
         if (HD.lastN && HD.notif) { toast(L == "ar" ? r.title : r.title_en || r.title); playTone(HD.tone); }

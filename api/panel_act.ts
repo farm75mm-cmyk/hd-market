@@ -314,6 +314,7 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
       await sendPush(uid);
       return "تم إرسال الرد";
     }
+    case "force_update": { await putSet("force_update", String(Date.now())); await putSet("force_update_by", actor()); return "تم إرسال أمر التحديث الإجباري لجميع المستخدمين"; }
     case "set_save":
       await putSet("maint_on", bool(f("maint_on")) ? "1" : "0"); await putSet("maint_msg", f("maint_msg").trim().slice(0, 300));
       await putSet("banner_on", bool(f("banner_on")) ? "1" : "0"); await putSet("banner_text", f("banner_text").trim().slice(0, 300));

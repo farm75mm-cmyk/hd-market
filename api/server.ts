@@ -117,6 +117,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     return ok({
       maintenance: { on: (await getSet("maint_on")) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
       banner: { on: (await getSet("banner_on")) === "1", text: await getSet("banner_text") },
+      force_update: await getSet("force_update", "0"),
       ai: { on: (await getSet("ai_on", "1")) === "1" },
       methods, rates: await getRates(),
       update: { version: (await getSet("upd_version")) || env("UPDATE_VERSION"), url: (await getSet("upd_url")) || env("UPDATE_URL"), notes: (await getSet("upd_notes")) || env("UPDATE_NOTES"), force: ((await getSet("upd_force")) || env("UPDATE_FORCE")) === "1" },
@@ -240,7 +241,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     await expireStale();
     const r = await first(`SELECT COUNT(*) c, MAX(id) m FROM notifications WHERE user_id = $1 AND is_read = 0`, [u.id]);
     const last = r && num(r.m) > 0 ? await first(`SELECT title, body, title_en, body_en FROM notifications WHERE id = $1`, [r.m]) : undefined;
-    return ok({ unread: num(r?.c), last_id: num(r?.m), title: last?.title ?? "", body: last?.body ?? "", title_en: last?.title_en ?? "", body_en: last?.body_en ?? "" });
+    return ok({ fu: await getSet("force_update", "0"), unread: num(r?.c), last_id: num(r?.m), title: last?.title ?? "", body: last?.body ?? "", title_en: last?.title_en ?? "", body_en: last?.body_en ?? "" });
   },
   async support_send(b) {
     const u = await authUser(b);
