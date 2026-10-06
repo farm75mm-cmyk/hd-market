@@ -78,3 +78,9 @@ f.addEventListener("submit",function(e){var a=f.audience.value;var m=a=="all"?${
 if(!confirm(m)){e.preventDefault();return}document.getElementById("pk").value="1";document.getElementById("psend").disabled=true;});})();</script>`;
   return { title: t("إرسال إشعار التحديث"), body, js };
 }
+
+// Automatic "app updated" notification (in-app + push) to every user; used by the force-update button and APK version changes.
+export async function notifyUpdate(version = ""): Promise<string> {
+  const m: Record<string, string> = { ok: "1", audience: "all", screen: "update", title: "تحديث جديد من HD Market", body: version ? `يتوفر تحديث جديد للتطبيق (${version}). اضغط لفتح HD Market وتحديثه الآن.` : "يتوفر تحديث جديد للتطبيق. اضغط لفتح HD Market وتحديثه الآن." };
+  return pushSend((k) => m[k] ?? "");
+}

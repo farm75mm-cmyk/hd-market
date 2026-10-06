@@ -5,7 +5,7 @@ import {
 } from "./core";
 import { ADMIN_EMAIL, ADMIN_USER } from "./core";
 import { assistAct } from "./assist";
-import { pushSend } from "./broadcast";
+import { pushSend, notifyUpdate } from "./broadcast";
 import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll } from "./shop";
 
 type F = (k: string) => string;
@@ -316,12 +316,13 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
       return "تم إرسال الرد";
     }
     case "push_send": return pushSend(f);
-    case "force_update": { await putSet("force_update", String(Date.now())); await putSet("force_update_by", actor()); return "تم إرسال أمر التحديث الإجباري لجميع المستخدمين"; }
+    case "force_update": { await putSet("force_update", String(Date.now())); await putSet("force_update_by", actor()); return "تم إرسال أمر التحديث الإجباري لجميع المستخدمين · " + (await notifyUpdate()); }
     case "set_save":
       await putSet("maint_on", bool(f("maint_on")) ? "1" : "0"); await putSet("maint_msg", f("maint_msg").trim().slice(0, 300));
       await putSet("banner_on", bool(f("banner_on")) ? "1" : "0"); await putSet("banner_text", f("banner_text").trim().slice(0, 300));
-      await putSet("upd_version", f("upd_version").trim().slice(0, 20)); await putSet("upd_url", f("upd_url").trim().slice(0, 500)); await putSet("upd_notes", f("upd_notes").trim().slice(0, 300)); await putSet("upd_force", bool(f("upd_force")) ? "1" : "0");
-      return "تم حفظ الإعدادات";
+      const oldVer = await getSet("upd_version"), newVer = f("upd_version").trim().slice(0, 20);
+      await putSet("upd_version", newVer); await putSet("upd_url", f("upd_url").trim().slice(0, 500)); await putSet("upd_notes", f("upd_notes").trim().slice(0, 300)); await putSet("upd_force", bool(f("upd_force")) ? "1" : "0");
+      return "تم حفظ الإعدادات" + (newVer && newVer !== oldVer ? " · " + (await notifyUpdate(newVer)) : "");
   }
   return "";
 }
