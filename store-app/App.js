@@ -9,7 +9,7 @@ import * as Notifications from "expo-notifications";
 const WEB = "https://hd-market-web-production.up.railway.app";
 const API = "https://hd-market-api-production.up.railway.app/api";
 const TONES = ["soft_bell", "bell", "marimba", "harp", "bubble", "digital", "loud", "calm", "ding", "silent"];
-const ROUTES = { support: "/support", orders: "/orders", wallet: "/wallet", deposits: "/wallet" };
+const ROUTES = { support: "/support", orders: "/orders", wallet: "/wallet", deposits: "/wallet", home: "/home", notifs: "/notifs", update: "/update", ai: "/ai" };
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }),

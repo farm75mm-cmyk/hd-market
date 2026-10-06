@@ -685,7 +685,17 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     }
   };
   const _enter = enter;
-  enter = function () { _enter(); afterLogin(); };
+  enter = function () { _enter(); afterLogin(); setTimeout(goHash, 900); };
+  /* notification taps: the native shell sets location.hash (#/support, #/update ...) */
+  function goHash() {
+    const k = (location.hash || "").replace(/^#\/?/, "");
+    if (!k || !TOKEN || $("app").hidden) return;
+    const go = { home: () => { tab = 0; HD.page = null; drawShop(); }, orders: () => { tab = 1; HD.page = null; drawShop(); }, wallet: () => { tab = 2; HD.page = null; drawShop(); }, support: () => { tab = 4; HD.page = null; drawShop(); },
+      notifs: () => { tab = 5; HD.page = "alerts"; drawShop(); }, ai: () => aiOpen(), update: () => forceUpdate((HD.cfg && HD.cfg.force_update) || LSg("fu", "0")) }[k];
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    if (go) { closeX(); opt = false; axe = false; go(); scrollTo(0, 0); }
+  }
+  window.addEventListener("hashchange", goHash);
   const _leave = leave;
   leave = function () { post({ type: "logout" }); HD.page = null; _leave(); };
   function afterLogin() {
