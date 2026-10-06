@@ -483,7 +483,8 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
 
   /* ---------- smart assistant (server-driven: flow, FAQ and products come from the admin panel) ---------- */
-  const BOT = SV('<rect x="5" y="8" width="14" height="11" rx="3.5"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1"/><circle cx="9.5" cy="13" r="1" fill="currentColor"/><circle cx="14.5" cy="13" r="1" fill="currentColor"/><path d="M9.5 16.2h5"/><path d="M3 12v3M21 12v3"/>');
+  const BOT = SV('<path d="M12 3.2V6"/><circle cx="12" cy="2.6" r=".9" fill="currentColor"/><rect x="4.5" y="6.5" width="15" height="12.5" rx="4.6"/><rect x="7.2" y="10" width="9.6" height="5.6" rx="2.8"/><circle cx="10" cy="12.8" r="1" fill="currentColor"/><circle cx="14" cy="12.8" r="1" fill="currentColor"/><path d="M2.3 11.2v3.6M21.7 11.2v3.6"/><path d="M9.5 21.4h5"/><path d="M20 2.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" fill="currentColor" stroke="none"/>');
+  const BOTF = '<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="aig" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#E9DEFF"/></linearGradient></defs><path d="M14.5 9V6.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="14.5" cy="5" r="2" fill="#FDE68A"/><rect x="5" y="9" width="19" height="16" rx="6.2" fill="url(#aig)"/><rect x="2" y="14.5" width="3" height="6" rx="1.5" fill="#fff"/><rect x="24" y="14.5" width="3" height="6" rx="1.5" fill="#fff"/><rect x="8.2" y="13" width="12.6" height="8.4" rx="4.2" fill="#4C1D95"/><circle cx="12.7" cy="17.2" r="1.9" fill="#FDE68A"/><circle cx="16.3" cy="17.2" r="1.9" fill="#FDE68A"/><path d="M12 23.2h5" stroke="#8B5CF6" stroke-width="1.4" stroke-linecap="round"/><path d="M26 2.5l1.1 2.9 2.9 1.1-2.9 1.1L26 10.5l-1.1-2.9L22 6.5l2.9-1.1z" fill="#FDE68A"/></svg>';
   IK.bot = BOT;
   HD.ai = { items: [], opts: [], input: null, vars: {}, started: false, lang: "", busy: false, home: true, support: false, go: [] };
   const aiLang = () => (L == "ar" ? "ar" : "en");
@@ -500,13 +501,13 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     ".air small{color:var(--mute);font-weight:600}.air .rg{align-self:flex-start;border:0;background:#8B5CF6;color:#fff;border-radius:99px;padding:8px 16px;font:800 14px inherit;font-family:inherit;cursor:pointer}" +
     ".aiin{position:sticky;bottom:150px;background:var(--bg);padding:8px 0;gap:8px;flex-wrap:nowrap;align-items:center}.aiin .xin{margin:0;flex:1}.aiin .xin:focus{border-color:#8B5CF6;outline:0}.aiin .xbtn{background:#8B5CF6;color:#fff}" +
     ".aifab{position:fixed;z-index:30;bottom:150px;inset-inline-start:max(14px,calc(50% - 206px));width:56px;height:56px;border-radius:50%;border:0;background:linear-gradient(135deg,#8B5CF6,#6D3FE0);color:#fff;display:grid;place-items:center;box-shadow:0 8px 22px rgba(109,63,224,.45);cursor:pointer}" +
-    ".aifab svg{width:30px;height:30px}.aity{opacity:.6}";
+    ".aifab svg{width:36px;height:36px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}.aifab::before{content:\"\";position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(139,92,246,.5);animation:aipulse 2.4s ease-out infinite}@keyframes aipulse{0%{transform:scale(.92);opacity:.9}100%{transform:scale(1.32);opacity:0}}.aiic{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#8B5CF6,#6D3FE0);vertical-align:middle;margin-inline-end:4px}.aiic svg{width:24px;height:24px}.aity{opacity:.6}";
   document.head.appendChild(aiCss);
   function aiFab() {
     document.querySelectorAll(".aifab").forEach((e) => e.remove());
     if (!TOKEN || $("app").hidden || tab != 0 || HD.page || axe || opt || !aiOn()) return;
     const b = document.createElement("button");
-    b.className = "aifab"; b.dataset.x = "aiopen"; b.setAttribute("aria-label", aiTitle()); b.innerHTML = BOT;
+    b.className = "aifab"; b.dataset.x = "aiopen"; b.setAttribute("aria-label", aiTitle()); b.innerHTML = BOTF;
     $("app").appendChild(b);
   }
   const _lcfg = loadCfg;
@@ -541,7 +542,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     scrollTo(0, document.body.scrollHeight);
   }
   function drawAi() {
-    $("view").innerHTML = `<div class="oh"><button class="bk" data-x="aiback" aria-label="back"></button><h2>🤖 ${aiTitle()}</h2></div><div class="pad aiw"><div class="ail" id="ailist"></div><div class="aio" id="aiopts"></div><div class="xr aiin"><input class="xin" id="aiq" maxlength="300" autocomplete="off"><button class="xbtn" data-x="aisend">${Z("إرسال", "Send", "Gửi", "发送")}</button></div></div>`;
+    $("view").innerHTML = `<div class="oh"><button class="bk" data-x="aiback" aria-label="back"></button><h2><span class="aiic">${BOTF}</span> ${aiTitle()}</h2></div><div class="pad aiw"><div class="ail" id="ailist"></div><div class="aio" id="aiopts"></div><div class="xr aiin"><input class="xin" id="aiq" maxlength="300" autocomplete="off"><button class="xbtn" data-x="aisend">${Z("إرسال", "Send", "Gửi", "发送")}</button></div></div>`;
     if (!HD.ai.started || HD.ai.lang != aiLang()) aiStart(); else paintAi();
   }
   function aiBack() { tab = HD.aiFrom || 0; HD.page = null; drawShop(); scrollTo(0, 0); }
@@ -566,7 +567,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
       <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
       ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
-      ${aiOn() ? row(IK.bot, "🤖 " + aiTitle(), "", "aiopen") : ""}${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      ${aiOn() ? row(IK.bot, aiTitle(), "", "aiopen") : ""}${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
       <div class="sg">${row(IK.dl, xt("chkupd"), APP_VER, "chkupd")}</div>
       <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
   function drawSettings() { HD.page = null; drawShop(); }
