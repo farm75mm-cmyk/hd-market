@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // ---------- config ----------
 export const env = (k: string, d = "") => Bun.env[k] ?? d;
@@ -50,6 +51,9 @@ await run(`CREATE TABLE IF NOT EXISTS users (id ${serial}, username TEXT NOT NUL
 await run(`CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS resets (id ${serial}, user_id BIGINT NOT NULL, code_hash TEXT NOT NULL,
   attempts INT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL, verified INT NOT NULL DEFAULT 0, reset_hash TEXT, created_at BIGINT NOT NULL)`);
+
+await run(`CREATE TABLE IF NOT EXISTS admins (id ${serial}, name TEXT NOT NULL, name_lc TEXT NOT NULL UNIQUE, email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', last_login BIGINT NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL)`);
 
 try { await run(`ALTER TABLE users ADD COLUMN balance DOUBLE PRECISION NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS categories (id ${serial}, name TEXT NOT NULL, image TEXT, sort INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)`);
@@ -159,6 +163,10 @@ if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["mig_methods_v1"]))) {
   });
 }
 export const ADMIN_ACTOR = "admin:" + (env("ADMIN_USER") || "admin");
+export type AdminWho = { actor: string; owner: boolean };
+export const whoStore = new AsyncLocalStorage<AdminWho>();
+export const actor = () => whoStore.getStore()?.actor ?? ADMIN_ACTOR;
+export const isOwner = () => whoStore.getStore()?.owner ?? false;
 export const IMG_RE =/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
 export const okImg = (v: any) => typeof v === "string" && v.length <= 450000 && IMG_RE.test(v);
 export const ORDER_STATUS: Record<string, string> = { new: "جديد", processing: "قيد التنفيذ", done: "مكتمل", cancelled: "ملغي" };

@@ -1,5 +1,5 @@
 // Admin panel entry: login, session, CSRF, language, flash messages, routing.
-import { run, num, now, rnd, h, sha, hmac, safeEq, env, SECRET, ADMIN_EMAIL, ADMIN_USER, ADMIN_PASSWORD, nowS } from "./core";
+import { run, first, putSet, whoStore, num, now, rnd, h, sha, hmac, safeEq, env, SECRET, ADMIN_EMAIL, ADMIN_USER, ADMIN_PASSWORD, nowS } from "./core";
 import { adminAct } from "./panel_act";
 import { renderPage, navBadges } from "./panel_pages";
 import { CSS, layout, mkT, Ctx, TAB_LABEL } from "./panel_ui";
@@ -11,10 +11,11 @@ const smallCookie = (n: string, v: string, maxAge: number, httpOnly = true) => `
 function sessionValid(req: Request) {
   const v = cookieOf(req, "hdadmin");
   if (!v) return null;
-  const [exp, nonce, sig] = v.split(".");
-  if (!exp || !nonce || !sig || Number(exp) < now() || !safeEq(sig, hmac(SECRET, `${exp}.${nonce}`))) return null;
-  return nonce;
+  const [exp, nonce, aid, sig] = v.split(".");
+  if (!exp || !nonce || !aid || !sig || Number(exp) < now() || !safeEq(sig, hmac(SECRET, `${exp}.${nonce}.${aid}`))) return null;
+  return { nonce, aid: Number(aid) || 0 };
 }
+const mkSession = (aid: number) => { const exp = now() + 30 * 86400, nonce = rnd(12); return sessionCookie(`${exp}.${nonce}.${aid}.${hmac(SECRET, `${exp}.${nonce}.${aid}`)}`, 30 * 86400); };
 const csrfOf = (nonce: string) => hmac(SECRET, "csrf:" + nonce);
 const fails = new Map<string, { n: number; until: number }>();
 
@@ -44,15 +45,28 @@ export async function admin(req: Request): Promise<Response> {
   if (post && f("do") === "login") {
     const st = fails.get(ip) ?? { n: 0, until: 0 };
     if (st.n >= 5 && now() < st.until) return page(lang, "Login", loginForm(lang, t("محاولات كثيرة. انتظر دقيقة.")));
-    const good = (safeEq(sha(ADMIN_USER), sha(f("u"))) || safeEq(sha(ADMIN_EMAIL), sha(f("u").trim().toLowerCase()))) && safeEq(sha(ADMIN_PASSWORD), sha(f("p")));
-    if (!good) { await Bun.sleep(1000); fails.set(ip, { n: st.n + 1, until: now() + 60 }); return page(lang, "Login", loginForm(lang, t("بيانات الدخول غير صحيحة."))); }
-    fails.delete(ip);
-    const exp = now() + 30 * 86400, nonce = rnd(12);
-    return redirect("/admin", [sessionCookie(`${exp}.${nonce}.${hmac(SECRET, `${exp}.${nonce}`)}`, 30 * 86400)]);
+    const u = f("u").trim(), p = f("p");
+    const isOwnerLogin = (safeEq(sha(ADMIN_USER), sha(u)) || safeEq(sha(ADMIN_EMAIL), sha(u.toLowerCase()))) && safeEq(sha(ADMIN_PASSWORD), sha(p));
+    if (isOwnerLogin) { fails.delete(ip); await putSet("owner_last_login", String(now())); return redirect("/admin", [mkSession(0)]); }
+    const ad = await first(`SELECT * FROM admins WHERE name_lc = $1 OR email = $1`, [u.toLowerCase()]);
+    if (ad && (await Bun.password.verify(p, ad.password_hash))) {
+      if (ad.status !== "active") return page(lang, "Login", loginForm(lang, t("تم حظر هذا الحساب من لوحة التحكم.")));
+      fails.delete(ip);
+      await run(`UPDATE admins SET last_login = $1 WHERE id = $2`, [now(), ad.id]);
+      return redirect("/admin", [mkSession(Number(ad.id))]);
+    }
+    await Bun.sleep(1000); fails.set(ip, { n: st.n + 1, until: now() + 60 });
+    return page(lang, "Login", loginForm(lang, t("بيانات الدخول غير صحيحة.")));
   }
-  const nonce = sessionValid(req);
-  if (!nonce) return page(lang, "Login", loginForm(lang, ""));
-  const csrf = csrfOf(nonce);
+  const sess = sessionValid(req);
+  if (!sess) return page(lang, "Login", loginForm(lang, ""));
+  let who = { actor: "admin:" + (ADMIN_USER || "admin"), owner: true };
+  if (sess.aid > 0) {
+    const ad = await first(`SELECT id, name, status FROM admins WHERE id = $1`, [sess.aid]);
+    if (!ad || ad.status !== "active") return page(lang, "Login", loginForm(lang, t("لم يعد لهذا الحساب صلاحية الدخول إلى لوحة التحكم.")), "", { "Set-Cookie": sessionCookie("", 0) });
+    who = { actor: "admin:" + ad.name, owner: false };
+  }
+  const csrf = csrfOf(sess.nonce);
 
   if (post) {
     if (!safeEq(csrf, f("csrf"))) return new Response("CSRF", { status: 403 });
@@ -60,7 +74,7 @@ export async function admin(req: Request): Promise<Response> {
     if (act === "logout") return redirect("/admin", [sessionCookie("", 0)]);
     const vis: Record<string, string> = {}; for (const [k, v] of form.entries()) if (typeof v === "string") vis[k] = v;
     let flash = "";
-    try { flash = await adminAct(act, f, vis); } catch (e) { console.error(e); flash = "حدث خطأ غير متوقع أثناء تنفيذ الأمر"; }
+    try { flash = await whoStore.run(who, () => adminAct(act, f, vis)); } catch (e) { console.error(e); flash = "حدث خطأ غير متوقع أثناء تنفيذ الأمر"; }
     return redirect(url.pathname + url.search, flash ? [smallCookie("hdflash", encodeURIComponent(flash), 60)] : []);
   }
 
@@ -69,7 +83,7 @@ export async function admin(req: Request): Promise<Response> {
   try { flash = flashRaw ? decodeURIComponent(flashRaw) : ""; } catch {}
   const F = (act: string, inner: string, extra = "") => `<form method="post" action="/admin?tab=${tab}${extra}"><input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="do" value="${act}">${inner}</form>`;
   const hid = (n: string, v: any) => `<input type="hidden" name="${n}" value="${h(v)}">`;
-  const ctx: Ctx = { csrf, lang, url, tab, t, F, hid };
+  const ctx: Ctx = { csrf, lang, url, tab, t, F, hid, owner: who.owner };
   let pg;
   try { pg = await renderPage(tab, ctx); } catch (e) { console.error(e); pg = { title: t("خطأ"), body: `<div class="err">${h(t("تعذّر عرض الصفحة. حاول مرة أخرى."))}</div>` }; }
   const body = (flash ? `<div class="msg">${h(t(flash))}</div>` : "") + pg.body;

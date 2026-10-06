@@ -1,5 +1,5 @@
 // Admin panel: page renderers (each returns the page title + body HTML).
-import { run, first, count, num, nowS, h, CURRENCIES, getRates, getSet, STATUS_AR, FLOW, toUsdt, r4 } from "./core";
+import { run, first, count, num, nowS, h, CURRENCIES, getRates, getSet, STATUS_AR, FLOW, toUsdt, r4, ADMIN_USER, ADMIN_EMAIL } from "./core";
 import { IMG, imgUrl, optPrice } from "./shop";
 import { Ctx, ic, tile, tabTile, TAB_LABEL, fmtT, money, usdtFmt, picker, field, statusChip, PICK_JS, LIVE_JS } from "./panel_ui";
 
@@ -310,6 +310,24 @@ async function codesPage(ctx: Ctx): Promise<Page> {
 }
 
 // ---------- customers & communication ----------
+async function adminsPage(ctx: Ctx): Promise<Page> {
+  const { t, F, hid } = ctx;
+  if (!ctx.owner) return { title: t("إدارة مسؤولي لوحة التحكم"), body: `<div class="err">${h(t("هذه الصفحة للمالك فقط."))}</div>` };
+  const rows = await run(`SELECT id, name, email, status, last_login, created_by, created_at FROM admins ORDER BY id`);
+  const ownerLast = num(await getSet("owner_last_login", "0"));
+  const active = rows.filter((r) => r.status === "active").length;
+  let out = `<div class="box"><div class="row"><span class="chip"><b>${rows.length + 1}</b> ${h(t("إجمالي المسؤولين"))}</span><span class="chip ok"><b>${active + 1}</b> ${h(t("نشط"))}</span><span class="chip bad"><b>${rows.length - active}</b> ${h(t("محظور"))}</span></div></div>`;
+  out += `<div class="box"><h2>${h(t("إضافة مسؤول جديد"))}</h2>${F("admin_add", `<div class="fg">${field(t("الاسم"), `<input type="text" class="w" name="name" maxlength="40" required autocomplete="off">`)}${field(t("البريد الإلكتروني"), `<input type="text" inputmode="email" class="w" name="email" required autocomplete="off">`)}${field(t("كلمة المرور (8 أحرف على الأقل)"), `<input type="text" class="w" name="password" minlength="8" required autocomplete="off">`)}</div><button class="y" style="margin-top:10px">${h(t("إضافة"))}</button>`)}<p class="hint" style="margin-top:8px">${h(t("سلّم الاسم أو البريد وكلمة المرور للمسؤول. يدخل من نفس رابط لوحة التحكم، وهو لا يرى هذه الصفحة."))}</p></div>`;
+  out += `<div class="item"><div class="hd"><span class="av">★</span><div><b>${h(ADMIN_USER || "admin")}</b> <span class="chip own">${h(t("المالك"))}</span> ${statusChip("ok", t("نشط"))}<br><span class="sm mono">${h(ADMIN_EMAIL)}</span><br><span class="sm">${h(t("أُضيف"))}: — · ${h(t("آخر دخول"))}: ${ownerLast ? fmtT(ownerLast) : "—"}</span></div></div><p class="hint" style="margin:8px 0 0">${h(t("لا يمكن حذف المالك أو حظره."))}</p></div>`;
+  for (const r of rows) {
+    const banned = r.status === "banned";
+    const b = (act: string, label: string, cls: string, cf = "") => F(act, `${hid("id", r.id)}<button class="${cls} s"${cf ? ` onclick="return confirm('${h(t(cf))}')"` : ""}>${h(t(label))}</button>`);
+    out += `<div class="item"><div class="hd"><span class="av">${h([...String(r.name)][0]?.toUpperCase())}</span><div><b>${h(r.name)}</b> ${banned ? statusChip("bad", t("محظور")) : statusChip("ok", t("نشط"))}<br><span class="sm mono">${h(r.email)}</span><br><span class="sm">${h(t("أُضيف"))}: ${fmtT(r.created_at)} · ${h(t("آخر دخول"))}: ${num(r.last_login) ? fmtT(r.last_login) : h(t("لم يدخل بعد"))}</span></div></div>
+      <div class="acts">${banned ? b("admin_unban", "رفع الحظر", "y") : b("admin_ban", "حظر", "g", "حظر هذا المسؤول ومنعه من الدخول إلى لوحة التحكم؟")}${b("admin_delete", "حذف", "g", "حذف هذا المسؤول نهائياً؟")}</div></div>`;
+  }
+  if (!rows.length) out += `<p class="hint" style="text-align:center">${h(t("لم تضف أي مسؤول بعد."))}</p>`;
+  return { title: t("إدارة مسؤولي لوحة التحكم"), body: out };
+}
 async function usersPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid } = ctx; const pg = pageNo(ctx), q = (ctx.url.searchParams.get("q") ?? "").trim(), per = 20;
   const params: any[] = []; let where = "";
@@ -392,6 +410,7 @@ export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
     case "opt_prices": return optPricesPage(ctx);
     case "random": return randomPage(ctx);
     case "users": return usersPage(ctx);
+    case "admins": return adminsPage(ctx);
     case "support": return supportPage(ctx);
     case "groups": return groupsPage(ctx);
     case "announcements": return annPage(ctx);
