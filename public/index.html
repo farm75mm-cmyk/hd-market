@@ -274,7 +274,7 @@ function setLang(v){L=v;try{localStorage.setItem("hd-lang",L)}catch(x){}apply()}
 
 (function(){var N={ar:"العربية",en:"English",vi:"Tiếng Việt",zh:"中文"};
 var ck='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-document.addEventListener("click",function(e){var b=e.target.closest(".lang");if(b){var h="";for(var k in N)h+='<div class="lgo" data-lg="'+k+'" style="display:flex;align-items:center;gap:12px;padding:16px 8px;border-bottom:1px solid var(--line);font-weight:800;font-size:17px;cursor:pointer"><span>'+N[k]+'</span><span style="margin-inline-start:auto;flex:none;width:26px;height:26px;border-radius:50%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border:2px solid '+(k==L?'#111;background:#111':'#cfcfcf')+'">'+(k==L?ck.replace('<svg','<svg width="16" height="16"'):'')+'</span></div>';var A=$("app").hidden;var sh=A?$("lgsheet"):$("sheet"),pn=A?$("lgpanel"):$("panel");if(A&&!sh){sh=document.createElement("div");sh.className="sheet";sh.id="lgsheet";sh.innerHTML='<div class="panel" id="lgpanel"></div>';document.body.appendChild(sh);sh.addEventListener("click",function(ev){if(ev.target==sh)sh.classList.remove("show")});pn=$("lgpanel")}pn.innerHTML='<h2>'+N[L]+'</h2>'+h;sh.classList.add("show");return}
+document.addEventListener("click",function(e){var b=e.target.closest(".lang");if(b){var h="";for(var k in N)h+='<div class="lgo" data-lg="'+k+'" style="display:flex;align-items:center;gap:18px;padding:22px 14px;border-bottom:1px solid var(--line);font-weight:500;font-size:22px;cursor:pointer"><span style="flex:none;width:30px;height:30px;border-radius:50%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border:2px solid '+(k==L?'#111;background:#111':'#cfcfcf')+'">'+(k==L?ck.replace('<svg','<svg width="17" height="17"'):'')+'</span><span>'+N[k]+'</span></div>';var A=$("app").hidden;var sh=A?$("lgsheet"):$("sheet"),pn=A?$("lgpanel"):$("panel");if(A&&!sh){sh=document.createElement("div");sh.className="sheet";sh.id="lgsheet";sh.innerHTML='<div class="panel" id="lgpanel"></div>';document.body.appendChild(sh);sh.addEventListener("click",function(ev){if(ev.target==sh)sh.classList.remove("show")});pn=$("lgpanel")}pn.innerHTML=h;sh.classList.add("show");return}
 var o=e.target.closest(".lgo");if(o){setLang(o.dataset.lg);$("sheet").classList.remove("show");var q=$("lgsheet");if(q)q.classList.remove("show")}});})();
 $("lsel").addEventListener("change",e=>setLang(e.target.value));
 $("switch").addEventListener("click",()=>{mode=mode=="in"?"up":"in";apply();scrollTo(0,0)});
@@ -591,6 +591,6 @@ document.addEventListener("click",e=>{
 apply();
 if(TOKEN)api("me",{token:TOKEN}).then(r=>{if(r.ok){ME=r;enter()}else if(r.error=="unauthorized")setTok(null)});
 </script>
-<script src="hd-live.js?v=9"></script>
+<script src="hd-live.js?v=10"></script>
 </body>
 </html>
