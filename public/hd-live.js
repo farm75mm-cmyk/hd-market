@@ -463,15 +463,14 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   const aiCss = document.createElement("style");
   aiCss.textContent = ".aiw{display:flex;flex-direction:column;min-height:calc(100vh - 330px)}.ail{display:flex;flex-direction:column;gap:10px;padding:6px 0 10px}" +
     ".aib,.aiu{max-width:86%;padding:11px 14px;border-radius:18px;font-weight:600;font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word}" +
-    ".aib{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-top-right-radius:6px}.aiu{align-self:flex-end;background:#111;color:#fff;border-top-left-radius:6px}" +
-    ".aib b.ai-h{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute);margin-bottom:4px}.aib b.ai-h svg{width:16px;height:16px}" +
-    ".aio{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 12px}.aoc{border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:10px 16px;font:700 15px inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}" +
-    ".aoc:active{background:var(--field)}.aoc.hm{border-style:dashed;color:var(--mute)}.aoc.sp{background:#111;color:#fff;border-color:#111}" +
-    ".air{align-self:stretch;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}" +
-    ".air .rt{display:flex;align-items:center;justify-content:space-between;gap:10px}.air .rt b{font-size:16px}.air .rp{font-weight:900;color:#111;background:#FCE8A8;border-radius:99px;padding:3px 12px;white-space:nowrap;direction:ltr}" +
-    ".air small{color:var(--mute);font-weight:600}.air .rg{align-self:flex-start;border:0;background:#111;color:#fff;border-radius:99px;padding:8px 16px;font:800 14px inherit;font-family:inherit;cursor:pointer}" +
-    ".aiin{position:sticky;bottom:150px;background:var(--bg);padding:8px 0;gap:8px;flex-wrap:nowrap;align-items:center}.aiin .xin{margin:0;flex:1}" +
-    ".aifab{position:fixed;z-index:30;bottom:150px;inset-inline-start:max(14px,calc(50% - 206px));width:56px;height:56px;border-radius:50%;border:0;background:#111;color:#E8A900;display:grid;place-items:center;box-shadow:0 8px 22px rgba(0,0,0,.28);cursor:pointer}" +
+    ".aib{align-self:flex-start;background:var(--card);border:1px solid #DDD0FB;border-top-right-radius:6px}.aiu{align-self:flex-end;background:linear-gradient(135deg,#8B5CF6,#6D3FE0);color:#fff;border-top-left-radius:6px}" +
+    ".aio{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 12px}.aoc{border:1.5px solid #8B5CF6;background:var(--card);color:#6D3FE0;border-radius:99px;padding:10px 16px;font:700 15px inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}" +
+    ".aoc:active{background:#EFE8FE}.aoc.hm{border-style:dashed;color:var(--mute);border-color:#C9B6F7}.aoc.sp{background:#8B5CF6;color:#fff;border-color:#8B5CF6}" +
+    ".air{align-self:stretch;background:var(--card);border:1px solid #DDD0FB;border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}" +
+    ".air .rt{display:flex;align-items:center;justify-content:space-between;gap:10px}.air .rt b{font-size:16px}.air .rp{font-weight:900;color:#5B2FCB;background:#EFE8FE;border-radius:99px;padding:3px 12px;white-space:nowrap;direction:ltr}" +
+    ".air small{color:var(--mute);font-weight:600}.air .rg{align-self:flex-start;border:0;background:#8B5CF6;color:#fff;border-radius:99px;padding:8px 16px;font:800 14px inherit;font-family:inherit;cursor:pointer}" +
+    ".aiin{position:sticky;bottom:150px;background:var(--bg);padding:8px 0;gap:8px;flex-wrap:nowrap;align-items:center}.aiin .xin{margin:0;flex:1}.aiin .xin:focus{border-color:#8B5CF6;outline:0}.aiin .xbtn{background:#8B5CF6;color:#fff}" +
+    ".aifab{position:fixed;z-index:30;bottom:150px;inset-inline-start:max(14px,calc(50% - 206px));width:56px;height:56px;border-radius:50%;border:0;background:linear-gradient(135deg,#8B5CF6,#6D3FE0);color:#fff;display:grid;place-items:center;box-shadow:0 8px 22px rgba(109,63,224,.45);cursor:pointer}" +
     ".aifab svg{width:30px;height:30px}.aity{opacity:.6}";
   document.head.appendChild(aiCss);
   function aiFab() {
