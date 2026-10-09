@@ -33,7 +33,7 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     if (Object.keys(det).length || id) await audit(run, actor(), act, "admin", id || "", det);
   }
   if (act.startsWith("ai_")) return assistAct(act, f, id);
-  if (act.startsWith("ev_") || act.startsWith("rule_")) return evAct(act, f, id);
+  if (act.startsWith("ev_") || act.startsWith("rule_") || act.startsWith("news_")) return evAct(act, f, id);
   switch (act) {
     // ----- panel admins (owner only) -----
     case "admin_add": {

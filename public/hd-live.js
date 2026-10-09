@@ -715,6 +715,60 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     document.querySelectorAll("#nav button").forEach((b, i) => { const sp = b.querySelector("span"); if (sp && NI[i]) sp.innerHTML = SV(NI[i]); });
   };
 
+  /* ---------- Hay Day news & events tab (center of the bottom bar) ---------- */
+  const NWC = { events: ["أحداث", "Events", "Sự kiện", "活动"], updates: ["التحديثات", "Updates", "Cập nhật", "更新"], news: ["الأخبار", "News", "Tin tức", "新闻"] };
+  const NWE = { events: "🎉", updates: "🛠️", news: "📰" };
+  const nwT = () => Z("أخبار وأحداث Hay Day", "Hay Day News & Events", "Tin tức & sự kiện Hay Day", "Hay Day 新闻与活动");
+  HD.nw = LSg("news", null); HD.nwCat = "all"; HD.nwOff = false; HD.nwAt = 0; HD.nwFail = false; HD.nwBusy = false;
+  const nwAgo = (ts) => {
+    const s = Math.max(0, Math.floor(Date.now() / 1000) + (HD.evOff || 0) - ts), m = Math.floor(s / 60), h = Math.floor(s / 3600), d = Math.floor(s / 86400);
+    const u = d >= 1 ? [d, Z("يوم", "d", "ngày", "天")] : h >= 1 ? [h, Z("ساعة", "h", "giờ", "小时")] : [Math.max(1, m), Z("دقيقة", "min", "phút", "分钟")];
+    return li() === 0 ? `قبل ${u[0]} ${u[1]}` : li() === 1 ? `${u[0]}${u[1]} ago` : li() === 2 ? `${u[0]} ${u[1]} trước` : `${u[0]}${u[1]}前`;
+  };
+  async function nwLoad(manual) {
+    if (HD.nwBusy) return; HD.nwBusy = true; if (manual) { const b = document.querySelector(".nwr"); if (b) b.classList.add("spin"); }
+    const r = await api("hd_news", {});
+    if (r && r.ok && Array.isArray(r.items)) { HD.evOff = r.now - Math.floor(Date.now() / 1000); HD.nw = r; LSs("news", r); HD.nwFail = false; HD.nwAt = Date.now(); } else HD.nwFail = true;
+    HD.nwBusy = false; if (tab == 6 && !HD.page && !axe && !opt) drawNews();
+  }
+  const nwTitle = (n) => (li() === 0 ? n.title : n.title_en || n.title);
+  const nwBody = (n) => (li() === 0 ? n.body : n.body_en || n.body);
+  function nwCard(n) {
+    const arrow = li() === 0 ? "←" : "→";
+    return `<article class="nwc2">${n.image ? `<div class="nwi" data-x="nwopen:${n.id}"><img src="${E(n.image)}" alt="" loading="lazy" decoding="async">` : `<div class="nwi ph" data-x="nwopen:${n.id}"><span>🌾</span>`}${n.pinned ? `<span class="nwp">📌 ${Z("مثبت", "Pinned", "Đã ghim", "置顶")}</span>` : ""}</div>
+      <div class="nwm"><div class="nwk"><b class="c-${E(n.cat)}">${E(Z(...(NWC[n.cat] || NWC.news)))}</b><span>${E(nwAgo(n.date))}</span></div>
+      <h3 data-x="nwopen:${n.id}">${E(nwTitle(n))}</h3>${nwBody(n) ? `<p>${E(nwBody(n))}</p>` : ""}<button class="nwl" data-x="nwopen:${n.id}">${E(Z("اقرأ الخبر كاملاً", "Read full story", "Đọc toàn bộ", "阅读全文"))} ${arrow}</button></div></article>`;
+  }
+  function drawNews() {
+    const v = $("view"); if (!v) return;
+    const d = HD.nw, all = (d && d.items) || [], list = HD.nwCat === "all" ? all : all.filter((n) => n.cat === HD.nwCat);
+    const sync = d ? nwAgo(d.synced_at || d.updated_at) : "—";
+    const note = (d && d.note) || Z("أخبار وأحداث Hay Day، ويتحدّث تلقائياً.", "Hay Day news and events, updated automatically.", "Tin tức & sự kiện Hay Day, tự động cập nhật.", "Hay Day 新闻与活动，自动更新。");
+    const chip = (k, lab) => `<button class="nwf${HD.nwCat === k ? " on" : ""}" data-x="nwcat:${k}">${lab}</button>`;
+    v.innerHTML = `<div class="nws"><div class="nwh"><h2>📰 ${E(nwT())}</h2><button class="nwt${HD.nwOff ? " off" : ""}" data-x="nwtog" aria-label="toggle"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+      ${HD.nwOff ? "" : `<div class="nwx"><div class="nwn"><span>🌾</span><div>${E(note)} ${E(Z("آخر مزامنة", "Last sync", "Đồng bộ lần cuối", "上次同步"))}: ${E(sync)}</div></div>
+      <div class="nwfs">${chip("all", E(Z("الكل", "All", "Tất cả", "全部")))}${["events", "updates", "news"].map((k) => chip(k, `${E(Z(...NWC[k]))} ${NWE[k]}`)).join("")}<button class="nwr" data-x="nwref" aria-label="refresh"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button></div>
+      ${HD.nwFail ? `<div class="xerr">${E(d ? Z("لا يوجد اتصال — تُعرض آخر بيانات محفوظة", "Offline — showing last saved data", "Ngoại tuyến — hiển thị dữ liệu đã lưu", "离线 — 显示上次保存的数据") : Z("تعذّر تحميل الأخبار", "Couldn't load news", "Không tải được tin", "无法加载新闻"))}</div>` : ""}
+      ${list.length ? list.map(nwCard).join("") : `<p class="xmut" style="text-align:center;padding:28px 0">${E(d ? Z("لا توجد أخبار في هذا التصنيف.", "Nothing here yet.", "Chưa có tin.", "暂无内容。") : Z("جارٍ التحميل...", "Loading...", "Đang tải...", "加载中..."))}</p>`}</div>`}</div>`;
+    if (!d || Date.now() - HD.nwAt > 20000) nwLoad();
+  }
+  function nwOpen(id) {
+    const n = ((HD.nw && HD.nw.items) || []).find((x) => x.id == id); if (!n) return;
+    xsheet(`${n.image ? `<img src="${E(n.image)}" alt="" style="width:100%;border-radius:18px;margin-bottom:10px">` : ""}<div class="nwk"><b class="c-${E(n.cat)}">${E(Z(...(NWC[n.cat] || NWC.news)))}</b><span>${E(nwAgo(n.date))}</span></div><h2 style="margin:6px 0 10px">${E(nwTitle(n))}</h2><div style="white-space:pre-wrap;line-height:1.8;color:var(--mute);font-weight:600">${E(nwBody(n))}</div>${n.link ? `<a class="xbtn" href="${E(n.link)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:14px;padding:13px">${E(Z("فتح المصدر", "Open source", "Mở nguồn", "打开来源"))}</a>` : ""}`);
+  }
+  setInterval(() => { if (!document.hidden && tab == 6 && !$("app").hidden && Date.now() - HD.nwAt > 60000) nwLoad(); }, 30000);
+  const NWICON = '<svg viewBox="0 0 48 48" width="44" height="44"><defs><linearGradient id="nwg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFC83D"/><stop offset="1" stop-color="#F57C00"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#nwg)"/><ellipse cx="24" cy="29" rx="12" ry="10" fill="#fff"/><circle cx="24" cy="15" r="8" fill="#fff"/><path d="M19 8c1-3 3-3 3.5 0 1-3 3-3 3.5 0 1-2 3-1.5 2.5 1.5z" fill="#E53935"/><path d="M30 14l6 2.5-6 2.5z" fill="#FB8C00"/><circle cx="26" cy="14" r="1.6" fill="#222"/><path d="M12 28c-3 1-4 5-2 8 3-1 5-4 4-8z" fill="#FFE0B2"/><path d="M20 38v4M28 38v4" stroke="#FB8C00" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  { const _n2 = drawNav;
+    drawNav = function () {
+      _n2();
+      const bs = [...document.querySelectorAll("#nav button")]; if (bs.length < 6) return;
+      const nb = document.createElement("button"); nb.dataset.n = "6"; nb.className = "nw" + (tab == 6 ? " on" : "");
+      nb.innerHTML = `<span>${NWICON}</span>${Z("أخبار Hay Day", "Hay Day News", "Tin Hay Day", "Hay Day 新闻")}`;
+      const nav = $("nav"); nav.insertBefore(nb, bs[2]); bs[3].remove();
+      const lab = bs[4].lastChild; if (lab && lab.nodeType === 3) lab.textContent = Z("المساعدة", "Help", "Trợ giúp", "帮助");
+    }; }
+  { const st = document.createElement("style"); st.textContent = "nav button.nw span{filter:none;margin-top:-16px;line-height:0}nav button.nw span svg{width:46px;height:46px;filter:drop-shadow(0 3px 5px #0003)}nav button.nw{color:#B07F00;white-space:nowrap;font-size:10.5px}nav button.nw.on{box-shadow:inset 0 3px var(--gold)}\n.nws{margin:-4px 0 0}.nwh{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border-bottom:1px solid var(--line);padding:16px 18px}.nwh h2{margin:0;font-size:22px}.nwt{width:48px;height:48px;border-radius:50%;border:0;background:var(--field);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none}.nwt svg{transition:.2s}.nwt.off svg{transform:rotate(90deg)}\n.nwx{padding:14px 14px 0}.nwn{display:flex;gap:10px;align-items:flex-start;background:#EAF6EC;color:#256B33;border-radius:18px;padding:12px 14px;font-weight:700;line-height:1.6;font-size:14px;margin-bottom:14px}.nwn span{font-size:20px}\n.nwfs{display:flex;gap:6px;align-items:center;flex-wrap:nowrap;margin-bottom:14px}.nwf{white-space:nowrap;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:11px 13px;font:800 14px inherit;font-family:inherit;cursor:pointer}.nwf.on{background:#0b0b0b;color:#fff;border-color:#0b0b0b}\n.nwr{margin-inline-start:auto;flex:none;width:54px;height:54px;border-radius:50%;border:0;background:#1F9D3A;color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 10px #1f9d3a55}.nwr.spin svg{animation:nwsp .8s linear infinite}@keyframes nwsp{to{transform:rotate(360deg)}}\n.nwc2{background:var(--card);border-radius:28px;overflow:hidden;margin-bottom:18px;box-shadow:0 2px 12px #0000001a}.nwi{position:relative;aspect-ratio:16/9;background:var(--field);cursor:pointer}.nwi img{width:100%;height:100%;object-fit:cover;display:block}.nwi.ph{display:grid;place-items:center;font-size:64px;background:linear-gradient(135deg,#FFE9A8,#F6B73C)}\n.nwp{position:absolute;top:14px;inset-inline-end:14px;background:#000000b3;color:#F5C542;font-weight:800;font-size:14px;border-radius:99px;padding:7px 14px}\n.nwm{padding:16px 20px 20px}.nwk{display:flex;justify-content:space-between;align-items:center;color:var(--mute);font-size:14px;font-weight:700}.nwk b{font-weight:800}.nwk .c-events,.nwk .c-news,.nwk .c-updates{color:#E53935}\n.nwm h3{font-size:22px;margin:10px 0 8px;line-height:1.4;cursor:pointer}.nwm p{color:var(--mute);margin:0 0 12px;line-height:1.8;font-weight:600;font-size:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.nwl{border:0;background:none;color:#1F9D3A;font:800 16px inherit;font-family:inherit;padding:4px 0;cursor:pointer}"; document.head.appendChild(st); }
+
   /* ---------- hook into the existing app ---------- */
   const _draw = drawShop;
   drawShop = function () {
@@ -726,6 +780,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (tab == 0) { const t = v.querySelector(".tiles"); if (t) { t.id = "xch"; t.innerHTML = ""; } const h2 = v.querySelector(".sh h2"); if (h2) h2.innerHTML = `${IK.shop} ${S[L].items}`; drawGrid(); }
     else if (tab == 1) { v.innerHTML = `<div class="pad"><h2>${S[L].nav[1]}</h2><div id="xol"></div></div>`; paintOrders(); loadOrders(); }
     else if (tab == 2) drawWallet();
+    else if (tab == 6) drawNews();
     else if (tab == 3 || tab == 4) drawChat();
     else if (tab == 5) {
       if (HD.page) return drawPage();
@@ -790,6 +845,10 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "boxes") openBoxes();
     else if (a == "groups") openGroups();
     else if (a == "events") evOpen();
+    else if (a == "nwcat") { HD.nwCat = i; drawNews(); }
+    else if (a == "nwtog") { HD.nwOff = !HD.nwOff; drawNews(); }
+    else if (a == "nwref") nwLoad(true);
+    else if (a == "nwopen") nwOpen(i);
     else if (a == "evtab") { HD.evTab = i; evDraw(); }
     else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
     else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
