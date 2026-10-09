@@ -3,6 +3,7 @@ import { run, first, count, num, nowS, h, CURRENCIES, getRates, getSet, STATUS_A
 import { IMG, imgUrl, optPrice } from "./shop";
 import { aiPage } from "./assist";
 import { pushPage } from "./broadcast";
+import { eventsPage } from "./events";
 import { Ctx, ic, tile, tabTile, TAB_LABEL, fmtT, money, usdtFmt, picker, field, statusChip, PICK_JS, LIVE_JS } from "./panel_ui";
 
 export type Page = { title: string; body: string; js?: string };
@@ -416,6 +417,7 @@ export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
     case "users": return usersPage(ctx);
     case "ai": return aiPage(ctx);
     case "push": return pushPage(ctx);
+    case "events": return eventsPage(ctx);
     case "admins": return adminsPage(ctx);
     case "support": return supportPage(ctx);
     case "groups": return groupsPage(ctx);

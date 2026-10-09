@@ -7,6 +7,7 @@ import {
 import { SHOP, IMG, imgUrl, imgResponse } from "./shop";
 import { admin } from "./panel";
 import { AI } from "./assist";
+import { EV } from "./events";
 
 // ---------- API ----------
 const BASE: Record<string, (b: Row) => Promise<Response>> = {
@@ -279,7 +280,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
   },
 };
 
-const API: Record<string, (b: Row) => Promise<Response>> = { ...BASE, ...SHOP, ...AI };
+const API: Record<string, (b: Row) => Promise<Response>> = { ...BASE, ...SHOP, ...AI, ...EV };
 
 // ---------- server ----------
 Bun.serve({

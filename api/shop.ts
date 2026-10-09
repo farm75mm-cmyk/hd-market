@@ -73,7 +73,7 @@ export function imgUrl(kind: string, r: Row): string | null {
   if (ref.startsWith("http")) return ref;
   return `${API_ORIGIN}/img/${kind}/${r.id}?v=${vOf(r)}`;
 }
-const IMG_TABLES: Record<string, [string, string]> = { c: ["categories", "image"], p: ["products", "image"], f: ["farms", "image"], b: ["random_boxes", "image"], m: ["payment_methods", "icon"], g: ["hd_groups", "image"], n: ["announcements", "image"] };
+const IMG_TABLES: Record<string, [string, string]> = { c: ["categories", "image"], p: ["products", "image"], f: ["farms", "image"], b: ["random_boxes", "image"], m: ["payment_methods", "icon"], g: ["hd_groups", "image"], n: ["announcements", "image"], e: ["hd_events", "image"] };
 export async function imgResponse(kind: string, id: number): Promise<Response> {
   const t = IMG_TABLES[kind];
   const row = t ? await first(`SELECT ${t[1]} AS image FROM ${t[0]} WHERE id = $1`, [id]) : undefined;

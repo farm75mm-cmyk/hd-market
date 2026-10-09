@@ -161,6 +161,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const r = await api("home", {});
     if (!r.ok) return;
     HD.rates = r.rates; HD.counts = r.counts; HD.grp = r.groups; HD.anns = r.announcements;
+    if (typeof evLoad === "function" && Date.now() - (HD.evAt || 0) > 20000) evLoad();
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
   }
   async function loadCat() {
@@ -190,6 +191,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (c.opt) out.push({ k: "opt", n: s.opt, mos: 1, e: "🍽️", sub: s.cnt(OPT.length), attr: 'data-p="1"', hay: OPT.map((o) => o.n).join(" ") });
     if (c.codes) out.push({ k: "codes", n: xt("codes"), e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
     if (c.boxes) out.push({ k: "boxes", n: xt("boxes"), e: "🎁", sub: `${c.boxes} ${xt("bx")}`, attr: 'data-x="boxes"' });
+    out.push({ k: "events", n: evT(), e: "🌾", sub: (() => { const a = HD.ev ? evList().filter((x) => x.st === "running").length : 0; return a ? `${a} ${Z("جارٍ الآن", "running", "đang chạy", "进行中")}` : Z("الشاحنة · السفينة · الدربي", "Truck · Boat · Derby", "Xe tải · Thuyền · Derby", "卡车 · 船 · 德比"); })(), attr: 'data-x="events"' });
     if (HD.grp && HD.grp.length) out.push({ k: "groups", n: xt("groups"), e: "💬", sub: `${HD.grp.length}`, attr: 'data-x="groups"' });
     return out;
   }
@@ -558,6 +560,55 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   function aiGo(sel) { tab = 0; HD.page = null; drawShop(); scrollTo(0, 0); setTimeout(() => { const el = document.querySelector(sel); if (el) el.click(); }, 150); }
 
+  /* ---------- Hay Day weekly events ---------- */
+  const EVK = { truck: ["الشاحنة", "Truck", "Xe tải", "卡车"], boat: ["السفينة", "Boat", "Thuyền", "船"], town: ["البلدة", "Town", "Thị trấn", "小镇"], xp2: ["مضاعفة الخبرة", "Double XP", "Nhân đôi XP", "双倍经验"], derby: ["الدربي", "Derby", "Derby", "德比"], valley: ["الوادي", "Valley", "Thung lũng", "山谷"], fishing: ["الصيد", "Fishing", "Câu cá", "钓鱼"], seasonal: ["موسمي", "Seasonal", "Theo mùa", "季节"], other: ["حدث", "Event", "Sự kiện", "活动"] };
+  const EVS = { running: ["جارٍ الآن", "Running", "Đang diễn ra", "进行中"], upcoming: ["قادم", "Upcoming", "Sắp tới", "即将开始"], ended: ["منتهٍ", "Ended", "Đã kết thúc", "已结束"] };
+  const evT = () => Z("أحداث Hay Day الأسبوعية", "Hay Day Weekly Events", "Sự kiện Hay Day hàng tuần", "Hay Day 每周活动");
+  HD.ev = LSg("ev", null); HD.evTab = "running"; HD.evOff = (HD.ev && HD.ev.off) || 0; HD.evFail = false; HD.evAt = 0;
+  const evNow = () => Math.floor(Date.now() / 1000) + (HD.evOff || 0);
+  const evSt = (e, n) => (n >= e.end ? "ended" : n >= e.start ? "running" : "upcoming");
+  const evList = () => { const n = evNow(); return ((HD.ev && HD.ev.events) || []).map((e) => ({ ...e, st: evSt(e, n) })).filter((e) => e.st !== "ended" || n - e.end < 3 * 86400); };
+  const evLoc = () => ["ar-u-nu-latn", "en-GB", "vi-VN", "zh-CN"][li()] || "en-GB";
+  const evFmt = (s) => { try { return new Intl.DateTimeFormat(evLoc(), { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(s * 1000)); } catch (e) { return new Date(s * 1000).toLocaleString(); } };
+  const evUtc = (s) => { const d = new Date(s * 1000); return d.toISOString().slice(5, 10).replace("-", "/") + " " + d.toISOString().slice(11, 16); };
+  const evDur = (sec) => { sec = Math.max(0, sec); const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60); const dn = Z("ي", "d", "ng", "天"), hn = Z("س", "h", "g", "时"), mn = Z("د", "m", "p", "分"); return d ? `${d}${dn} ${h}${hn}` : h ? `${h}${hn} ${m}${mn}` : `${Math.max(1, m)}${mn}`; };
+  const evName = (e) => (li() === 0 ? e.name : e.name_en || e.name);
+  const evRew = (e) => (li() === 0 ? e.rewards : e.rewards_en || e.rewards);
+  async function evLoad() {
+    const r = await api("hd_events", {});
+    if (r && r.ok && Array.isArray(r.events)) {
+      HD.evOff = r.now - Math.floor(Date.now() / 1000); HD.ev = { now: r.now, updated_at: r.updated_at, events: r.events, off: HD.evOff, fetched: Date.now() };
+      LSs("ev", HD.ev); HD.evFail = false; HD.evAt = Date.now();
+    } else HD.evFail = true;
+    if ($("evroot")) evDraw(); else if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page && $("cg")) drawGrid();
+  }
+  function evCard(e) {
+    const n = evNow(), when = e.st === "running" ? `${Z("ينتهي بعد", "Ends in", "Kết thúc sau", "剩余")} ${evDur(e.end - n)}` : e.st === "upcoming" ? `${Z("يبدأ بعد", "Starts in", "Bắt đầu sau", "开始于")} ${evDur(e.start - n)}` : `${Z("انتهى قبل", "Ended", "Kết thúc", "已结束")} ${evDur(n - e.end)}`;
+    return `<div class="evc ${e.st}"><img src="${E(e.image)}" alt="" loading="lazy" decoding="async" width="84" height="84"><div class="evb"><div class="evh"><b>${E(evName(e))}</b></div><div class="evk">${E(Z(...(EVK[e.kind] || EVK.other)))}</div>
+      <div class="evt">🟢 ${E(Z("البداية", "Start", "Bắt đầu", "开始"))}: <bdi>${E(evFmt(e.start))}</bdi></div><div class="evt">🔴 ${E(Z("النهاية", "End", "Kết thúc", "结束"))}: <bdi>${E(evFmt(e.end))}</bdi></div><div class="evu">UTC ${E(evUtc(e.start))} → ${E(evUtc(e.end))}</div>${evRew(e) ? `<div class="evr">🎁 ${E(evRew(e))}</div>` : ""}
+      <span class="evs ${e.st}">${E(Z(...EVS[e.st]))} · ${E(when)}</span></div></div>`;
+  }
+  function evDraw() {
+    const root = $("evroot"); if (!root) return;
+    const all = evList(), cnt = (s) => all.filter((e) => e.st === s).length, cur = all.filter((e) => e.st === HD.evTab);
+    if (HD.evTab === "ended") cur.sort((a, b) => b.end - a.end);
+    const upd = HD.ev && HD.ev.updated_at ? evFmt(HD.ev.updated_at) : "—";
+    const sc = $("panel").scrollTop;
+    root.innerHTML = `<h2>🌾 ${E(evT())}</h2><div class="evtabs">${["running", "upcoming", "ended"].map((s) => `<button class="evtab${HD.evTab === s ? " on" : ""}" data-x="evtab:${s}">${E(Z(...EVS[s]))} <bdi>${cnt(s)}</bdi></button>`).join("")}</div>
+      ${HD.evFail ? `<div class="xerr">${E(HD.ev ? Z("لا يوجد اتصال — تُعرض آخر بيانات محفوظة", "Offline — showing last saved data", "Ngoại tuyến — hiển thị dữ liệu đã lưu", "离线 — 显示上次保存的数据") : Z("تعذّر تحميل الأحداث", "Couldn't load events", "Không tải được sự kiện", "无法加载活动"))}</div>` : ""}
+      ${cur.length ? cur.map(evCard).join("") : `<p class="xmut">${E(HD.ev ? Z("لا توجد أحداث في هذا القسم.", "No events here.", "Không có sự kiện.", "此处暂无活动。") : Z("جارٍ التحميل...", "Loading...", "Đang tải...", "加载中..."))}</p>`}
+      <p class="evup">${E(Z("آخر تحديث للبيانات", "Data last updated", "Cập nhật lần cuối", "数据更新于"))}: ${E(upd)} · ${E(Z("الأوقات بتوقيتك المحلي (والتوقيت العالمي UTC للعبة)", "Times in your local time (and game UTC)", "Giờ địa phương (và UTC của game)", "本地时间（及游戏 UTC）"))}</p>`;
+    $("panel").scrollTop = sc;
+  }
+  function evOpen() {
+    xsheet(`<div id="evroot"></div>`);
+    if (!HD.ev) HD.evTab = "running"; else { const a = evList(); if (!a.some((e) => e.st === HD.evTab)) HD.evTab = a.some((e) => e.st === "running") ? "running" : a.some((e) => e.st === "upcoming") ? "upcoming" : "ended"; }
+    evDraw(); evLoad();
+  }
+  setInterval(() => { if (document.hidden) return; if ($("evroot")) { evDraw(); if (Date.now() - HD.evAt > 60000) evLoad(); } else if (Date.now() - HD.evAt > 300000) evLoad(); }, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - HD.evAt > 30000) evLoad(); });
+  { const st = document.createElement("style"); st.textContent = ".evtabs{display:flex;gap:8px;margin:4px 0 12px}.evtab{flex:1;border:0;border-radius:14px;padding:10px 6px;background:var(--field);color:var(--ink);font:800 14px inherit;font-family:inherit;cursor:pointer}.evtab.on{background:#6d28d9;color:#fff}.evtab bdi{opacity:.75}\n.evc{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:12px;margin-bottom:10px}.evc.ended{opacity:.62}.evc img{width:84px;height:84px;border-radius:18px;object-fit:cover;flex:none;background:var(--field)}\n.evb{flex:1;min-width:0}.evh b{font-size:17px}.evk{display:inline-block;font-size:12px;font-weight:800;color:#6d28d9;background:#efe7fd;border-radius:10px;padding:1px 9px;margin:3px 0}.evt{font-size:13px;font-weight:700;margin-top:3px}.evu{font-size:11px;color:var(--mute);direction:ltr;text-align:start}.evr{font-size:13px;margin-top:4px;line-height:1.5}\n.evs{display:inline-block;margin-top:6px;font-size:12px;font-weight:800;border-radius:10px;padding:2px 10px}.evs.running{background:#E6F4E6;color:#1b6b1b}.evs.upcoming{background:#DCEBFF;color:#1a4fa0}.evs.ended{background:var(--field);color:var(--mute)}.evup{font-size:12px;color:var(--mute);text-align:center;margin:12px 0 4px}"; document.head.appendChild(st); }
+
   /* ---------- account: settings entry + sub pages ---------- */
   const row = (icon, label, val, x, extra) => `<button class="sr" data-x="${x}"><span class="si">${icon}</span><span class="sl">${label}</span>${extra || `<span class="sv">${val ? E(val) : ""}${chvR}</span>`}</button>`;
   const subHead = (title, back) => `<div class="oh"><button class="bk" data-x="back:${back}" aria-label="back"></button><h2>${title}</h2></div>`;
@@ -738,6 +789,8 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "codes") openCodes();
     else if (a == "boxes") openBoxes();
     else if (a == "groups") openGroups();
+    else if (a == "events") evOpen();
+    else if (a == "evtab") { HD.evTab = i; evDraw(); }
     else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
     else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
     else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
