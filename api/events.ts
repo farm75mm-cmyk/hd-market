@@ -154,6 +154,17 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
       return "تمت إضافة الحدث";
     }
     case "ev_del": await run(`DELETE FROM hd_events WHERE id = $1`, [id]); return "تم حذف الحدث";
+    case "ev_clone_week": {
+      // copy events that started in the last 7 days to the same time next week (skips ones already present)
+      const src = await run(`SELECT * FROM hd_events WHERE active = 1 AND start_at >= $1 AND start_at < $2`, [t - 7 * 86400, t]);
+      let n = 0;
+      for (const e of src) {
+        const s2 = num(e.start_at) + 7 * 86400, e2 = num(e.end_at) + 7 * 86400;
+        if (await first(`SELECT id FROM hd_events WHERE name = $1 AND start_at = $2`, [e.name, s2])) continue;
+        await run(`INSERT INTO hd_events (name, name_en, kind, image, start_at, end_at, rewards, rewards_en, source, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',1,$9,$9)`, [e.name, e.name_en, e.kind, e.image, s2, e2, e.rewards, e.rewards_en, t]); n++;
+      }
+      return n ? `تم نسخ ${n} حدث إلى الأسبوع القادم` : "لا توجد أحداث جديدة للنسخ";
+    }
     case "ev_clear_ended": await run(`DELETE FROM hd_events WHERE end_at < $1`, [t]); return "تم حذف الأحداث المنتهية";
     case "rule_save": {
       const name = f("name").trim().slice(0, 120), kind = KIND_OK.has(f("kind")) ? f("kind") : "other";
@@ -212,7 +223,7 @@ export async function eventsPage(ctx: Ctx): Promise<{ title: string; body: strin
     <div class="box"><h2>${h(t("جدول أسبوعي متكرر"))}</h2><p class="hint">${h(t("لأحداث تتكرر كل أسبوع في نفس اليوم والساعة (مثلًا يوم الاثنين 08:00 UTC لمدة 24 ساعة). يولّدها الخادم تلقائيًا للأسابيع القادمة دون إعادة إدخالها."))}</p>${ruleForm()}</div>`;
   if (rules.length) body += `<h2>${h(t("القواعد المتكررة"))}</h2>` + rules.map((r) => `<div class="item"><div class="row"><b>${h(r.name)}</b>${statusChip(num(r.active) ? "ok" : "bad", num(r.active) ? t("مفعّلة") : t("متوقفة"))}<span class="sm">${h(t(DAYS[num(r.weekday)]))} ${String(num(r.hour)).padStart(2, "0")}:${String(num(r.minute)).padStart(2, "0")} UTC · ${num(r.duration_h)}${h(t("س"))}</span></div>
     <details><summary>${h(t("تعديل"))}</summary>${ruleForm(r)}</details><div class="acts">${F("rule_del", `${hid("id", r.id)}<button class="r s" onclick="return confirm('${h(t("حذف القاعدة؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`).join("");
-  body += `<h2>${h(t("الأحداث"))}</h2>` + (live.events.length || rows.length ? `<div class="acts">${F("ev_clear_ended", `<button class="g s" onclick="return confirm('${h(t("حذف كل الأحداث المنتهية؟"))}')">${h(t("حذف المنتهية"))}</button>`)}</div>` : "");
+  body += `<h2>${h(t("الأحداث"))}</h2>` + (live.events.length || rows.length ? `<div class="acts">${F("ev_clone_week", `<button class="g s" onclick="return confirm('${h(t("نسخ أحداث آخر 7 أيام إلى الأسبوع القادم؟"))}')">${h(t("نسخ أحداث الأسبوع الماضي للأسبوع القادم"))}</button>`)}${F("ev_clear_ended", `<button class="g s" onclick="return confirm('${h(t("حذف كل الأحداث المنتهية؟"))}')">${h(t("حذف المنتهية"))}</button>`)}</div>` : "");
   body += rows.map((e) => { const st = status(num(e.start_at), num(e.end_at), n); const k = KINDS.find((x) => x[0] === e.kind);
     return `<div class="item"><div class="row"><img class="th" style="width:44px;height:44px;border-radius:10px;object-fit:cover" src="${h(imgUrl("e", e) ?? defImg(e.kind))}" alt=""><b>${h(e.name)}</b>${statusChip(st === "running" ? "ok" : st === "upcoming" ? "processing" : "bad", t(st === "running" ? "جارٍ الآن" : st === "upcoming" ? "قادم" : "منتهٍ"))}${e.source === "import" ? statusChip("processing", t("مستورد")) : ""}${num(e.active) ? "" : statusChip("bad", t("مخفي"))}<span class="sm">${h(t(k?.[1] ?? ""))} · ${fmtU(e.start_at)} → ${fmtU(e.end_at)}</span></div>
     <details><summary>${h(t("تعديل"))}</summary>${evForm(e)}</details><div class="acts">${F("ev_del", `${hid("id", e.id)}<button class="r s" onclick="return confirm('${h(t("حذف الحدث؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`; }).join("");
