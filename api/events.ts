@@ -1,6 +1,6 @@
 // Hay Day weekly events: manual events, weekly recurring rules and optional import from a trusted external feed (JSON / iCal).
 // All times are stored as UTC epoch seconds (the game's own clock is UTC; weekly events start Monday 08:00 UTC).
-import { run, first, count, num, nowS, serial, Row, h, ok, getSet, putSet, okImg } from "./core";
+import { run, first, count, num, nowS, serial, Row, h, ok, getSet, putSet, okImg, env } from "./core";
 import { IMG, imgUrl, WEB_ORIGIN } from "./shop";
 import type { Ctx } from "./panel_ui";
 import { statusChip, fmtT, picker, field, PICK_JS } from "./panel_ui";
@@ -185,10 +185,51 @@ export async function syncNews(): Promise<string> {
   return msg;
 }
 
+
+// ---------- AI-prepared weekly drafts (needs ANTHROPIC_API_KEY; drafts stay hidden until an admin approves them) ----------
+export async function draftEvents(): Promise<string> {
+  const key = env("ANTHROPIC_API_KEY");
+  if (!key) return "أضف مفتاح ANTHROPIC_API_KEY في إعدادات الخادم أولًا";
+  const n = nowS();
+  let msg = "", good = "0";
+  try {
+    const model = (await getSet("ev_ai_model")) || "claude-sonnet-5-5";
+    const today = new Date(n * 1000).toISOString().slice(0, 10);
+    const prompt = `Today is ${today} (UTC). Search the web for the official Hay Day (Supercell) event schedule for the CURRENT and NEXT week (truck/ship/town bonuses, 2x XP, derby, valley, fishing, seasonal events). Use only information you actually find; never guess dates. Reply with ONLY a JSON array (no prose, no code fence). Each item: {"name":"Arabic name","name_en":"English name","kind":"truck|boat|town|xp2|derby|valley|fishing|seasonal|other","start":"ISO-8601 UTC","end":"ISO-8601 UTC","rewards":"Arabic short text or empty"}. Hay Day events normally start at 08:00 UTC. If you find nothing reliable reply [].`;
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, signal: AbortSignal.timeout(120000),
+      body: JSON.stringify({ model, max_tokens: 3000, tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }], messages: [{ role: "user", content: prompt }] }),
+    });
+    if (!r.ok) throw new Error("API " + r.status);
+    const j: any = await r.json();
+    const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+    const m = text.match(/\[[\s\S]*\]/);
+    const arr: any[] = m ? JSON.parse(m[0]) : [];
+    let add = 0;
+    for (const x of arr.slice(0, 60)) {
+      const name = String(x.name ?? x.name_en ?? "").trim().slice(0, 120), s = toSec(x.start), e = toSec(x.end);
+      const kind = KIND_OK.has(String(x.kind)) ? String(x.kind) : guessKind(name + " " + String(x.name_en ?? ""));
+      if (!name || !s || !e || e <= s || e - s > 14 * 86400 || e < n - 86400 || s > n + 21 * 86400) continue;
+      if (await first(`SELECT id FROM hd_events WHERE start_at = $1 AND (name = $2 OR kind = $3)`, [s, name, kind])) continue;
+      await run(`INSERT INTO hd_events (name, name_en, kind, start_at, end_at, rewards, source, ext_id, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,0,$8,$8)`, [name, String(x.name_en ?? "").slice(0, 120), kind, s, e, String(x.rewards ?? "").slice(0, 400), `ai|${name}|${s}`, n]); add++;
+    }
+    msg = add ? `تم تجهيز ${add} مسودة بانتظار مراجعتك` : "لم يجد البحث أحداثًا موثوقة جديدة";
+    good = "1";
+  } catch (e: any) { msg = "فشل تجهيز المسودات: " + String(e?.message ?? e).slice(0, 120); }
+  await putSet("ev_ai_ok", good); await putSet("ev_ai_try", String(nowS())); await putSet("ev_ai_msg", msg);
+  return msg;
+}
+const weekKey = (n: number) => { const d = new Date(n * 1000), mon = Math.floor(n / 86400) - ((d.getUTCDay() + 6) % 7); return String(mon); };
+
 // hourly background sync when a source is configured (and cleanup of long-ended imported events)
 setInterval(async () => {
   try {
     if ((await getSet("ev_auto", "1")) === "1" && /^https:\/\//.test((await getSet("ev_src_url")).trim())) await syncEvents();
+    if ((await getSet("ev_ai_auto", "0")) === "1" && env("ANTHROPIC_API_KEY")) {
+      const n = nowS(), d = new Date(n * 1000), due = d.getUTCDay() === 0 ? d.getUTCHours() >= 13 : d.getUTCDay() === 1 || d.getUTCDay() === 2;
+      const wk = weekKey(d.getUTCDay() === 0 ? n + 86400 : n); // Sunday afternoon prepares the coming week
+      if (due && (await getSet("ev_ai_week")) !== wk && n - num(await getSet("ev_ai_try", "0")) > 3000) { await draftEvents(); if ((await getSet("ev_ai_ok")) === "1") await putSet("ev_ai_week", wk); }
+    }
     if ((await getSet("news_auto", "1")) === "1" && /^https:\/\//.test((await getSet("news_src_url")).trim())) await syncNews();
     await run(`DELETE FROM hd_events WHERE end_at < $1 AND source = 'import'`, [nowS() - 30 * 86400]);
   } catch (e) { console.error("events sync", e); }
@@ -211,7 +252,7 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
       if (e - s > MAX_LEN) return "مدة الحدث أطول من المسموح (60 يومًا)";
       const v = [name, f("name_en").trim().slice(0, 120), kind, s, e, f("rewards").trim().slice(0, 400), f("rewards_en").trim().slice(0, 400), f("active") === "1" ? 1 : 0];
       if (id > 0) {
-        await run(`UPDATE hd_events SET name=$1, name_en=$2, kind=$3, start_at=$4, end_at=$5, rewards=$6, rewards_en=$7, active=$8, source='manual', updated_at=$9 WHERE id=$10`, [...v, t, id]);
+        await run(`UPDATE hd_events SET name=$1, name_en=$2, kind=$3, start_at=$4, end_at=$5, rewards=$6, rewards_en=$7, active=$8, source=CASE WHEN source='draft' THEN 'draft' ELSE 'manual' END, updated_at=$9 WHERE id=$10`, [...v, t, id]);
         if (img && okImg(img)) await run(`UPDATE hd_events SET image=$1 WHERE id=$2`, [img, id]);
         if (f("noimg") === "1") await run(`UPDATE hd_events SET image=NULL WHERE id=$1`, [id]);
         return "تم حفظ الحدث";
@@ -250,6 +291,11 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
       return u ? "تم حفظ مصدر الاستيراد" : "تم مسح مصدر الاستيراد";
     }
     case "ev_sync": return syncEvents();
+    case "ev_draft_run": return draftEvents();
+    case "ev_ai_set": await putSet("ev_ai_auto", f("auto") === "1" ? "1" : "0"); await putSet("ev_ai_model", f("model").trim().slice(0, 80)); return "تم حفظ إعدادات التجهيز الأسبوعي";
+    case "ev_draft_ok": await run(`UPDATE hd_events SET active = 1, source = 'manual', updated_at = $1 WHERE id = $2 AND source = 'draft'`, [t, id]); return "تم اعتماد الحدث ونشره في التطبيق";
+    case "ev_draft_okall": { const n = await count(`SELECT COUNT(*) c FROM hd_events WHERE source = 'draft'`); await run(`UPDATE hd_events SET active = 1, source = 'manual', updated_at = $1 WHERE source = 'draft'`, [t]); return `تم اعتماد ${n} حدث`; }
+    case "ev_draft_clear": await run(`DELETE FROM hd_events WHERE source = 'draft'`); return "تم حذف كل المسودات";
     case "news_save": {
       const title = f("title").trim().slice(0, 200), cat = CAT_OK.has(f("cat")) ? f("cat") : "news", link = f("link").trim();
       if (!title) return "عنوان الخبر مطلوب";
@@ -305,6 +351,14 @@ export async function eventsPage(ctx: Ctx): Promise<{ title: string; body: strin
   const src = await getSet("ev_src_url"), auto = (await getSet("ev_auto", "1")) === "1", syncAt = num(await getSet("ev_sync_at", "0")), tryAt = num(await getSet("ev_sync_try", "0")), msg = await getSet("ev_sync_msg"), syncOk = (await getSet("ev_sync_ok")) === "1";
   const live = await listEvents();
   const cnt = (s: string) => live.events.filter((x) => x.status === s).length;
+  const drafts = rows.filter((e) => e.source === "draft");
+  const aiKey = !!env("ANTHROPIC_API_KEY"), aiAuto = (await getSet("ev_ai_auto", "0")) === "1", aiTry = num(await getSet("ev_ai_try", "0")), aiOk = (await getSet("ev_ai_ok")) === "1", aiMsg = await getSet("ev_ai_msg");
+  const draftBox = `<div class="box"><h2>${h(t("تجهيز أحداث الأسبوع تلقائيًا (مسودات للمراجعة)"))}</h2>
+    <p class="hint">${h(t("يبحث الذكاء الاصطناعي في الإنترنت عن جدول أحداث الأسبوع ويحفظ ما يجده كمسودات مخفية. لا يظهر شيء للمستخدمين حتى تعتمده أنت. قد يخطئ أو لا يجد شيئًا، لذلك راجع الأوقات قبل الاعتماد."))}${aiKey ? "" : " — " + h(t("يتطلب إضافة مفتاح ANTHROPIC_API_KEY في إعدادات الخادم"))}</p>
+    ${F("ev_ai_set", `<div class="row">${chk("auto", t("تجهيز تلقائي كل أحد بعد 13:00 UTC"), aiAuto)}<input type="text" class="w mono" name="model" value="${h(await getSet("ev_ai_model"))}" placeholder="claude-sonnet-5-5" style="max-width:240px"><button>${h(t("حفظ"))}</button></div>`)}
+    ${F("ev_draft_run", `<div class="row" style="margin-top:8px"><button class="g">${h(t("تجهيز مسودات الآن"))}</button>${aiTry ? `<span class="sm">${statusChip(aiOk ? "ok" : "bad", aiOk ? t("ناجح") : t("فشل"))} ${fmtT(aiTry)} · ${h(t(aiMsg))}</span>` : ""}</div>`)}
+    ${drafts.length ? `<h2 style="margin-top:14px">${h(t("مسودات بانتظار المراجعة"))} (${drafts.length})</h2>` + drafts.map((e) => `<div class="item"><div class="row"><b>${h(e.name)}</b>${statusChip("processing", t(KINDS.find((x) => x[0] === e.kind)?.[1] ?? ""))}<span class="sm">${fmtU(e.start_at)} → ${fmtU(e.end_at)}</span></div>${e.rewards ? `<div class="sm">${h(e.rewards)}</div>` : ""}
+      <details><summary>${h(t("تعديل قبل الاعتماد"))}</summary>${evForm(e)}</details><div class="acts">${F("ev_draft_ok", `${hid("id", e.id)}<button class="y s">${h(t("اعتماد ونشر"))}</button>`)}${F("ev_del", `${hid("id", e.id)}<button class="r s">${h(t("حذف"))}</button>`)}</div></div>`).join("") + `<div class="acts">${F("ev_draft_okall", `<button class="y s" onclick="return confirm('${h(t("اعتماد كل المسودات ونشرها؟"))}')">${h(t("اعتماد الكل"))}</button>`)}${F("ev_draft_clear", `<button class="r s" onclick="return confirm('${h(t("حذف كل المسودات؟"))}')">${h(t("حذف كل المسودات"))}</button>`)}</div>` : ""}</div>`;
   let body = `<p class="hint">${h(t("كل الأوقات بتوقيت اللعبة (UTC). تظهر الأحداث في التطبيق فورًا بعد الحفظ دون تحديث التطبيق، ويُحسب حالها (جارٍ / قادم / منتهٍ) تلقائيًا حسب الوقت."))}</p>
     <div class="row"><span class="chip ok"><b>${cnt("running")}</b> ${h(t("جارٍ الآن"))}</span><span class="chip processing"><b>${cnt("upcoming")}</b> ${h(t("قادم"))}</span><span class="chip"><b>${cnt("ended")}</b> ${h(t("منتهٍ"))}</span><span class="sm">${h(t("آخر تحديث للبيانات"))}: ${fmtT(live.updated_at)}</span></div>
     <div class="box"><h2>${h(t("استيراد من مصدر خارجي"))}</h2>
@@ -312,6 +366,7 @@ export async function eventsPage(ctx: Ctx): Promise<{ title: string; body: strin
       ${F("ev_src", `<div class="row">${`<input type="url" class="w" name="url" placeholder="https://..." value="${h(src)}" style="min-width:260px;flex:1">`}${chk("auto", t("مزامنة تلقائية كل ساعة"), auto)}<button>${h(t("حفظ المصدر"))}</button></div>`)}
       ${src ? F("ev_sync", `<div class="row" style="margin-top:8px"><button class="g">${h(t("مزامنة الآن"))}</button>${tryAt ? `<span class="sm">${statusChip(syncOk ? "ok" : "bad", syncOk ? t("ناجحة") : t("فشلت"))} ${fmtT(tryAt)} · ${h(t(msg))}</span>` : ""}</div>`) : ""}
     </div>
+    ${draftBox}
     <div class="box"><h2>${h(t("إضافة حدث"))}</h2>${evForm()}</div>
     <div class="box"><h2>${h(t("جدول أسبوعي متكرر"))}</h2><p class="hint">${h(t("لأحداث تتكرر كل أسبوع في نفس اليوم والساعة (مثلًا يوم الاثنين 08:00 UTC لمدة 24 ساعة). يولّدها الخادم تلقائيًا للأسابيع القادمة دون إعادة إدخالها."))}</p>${ruleForm()}</div>`;
   if (rules.length) body += `<h2>${h(t("القواعد المتكررة"))}</h2>` + rules.map((r) => `<div class="item"><div class="row"><b>${h(r.name)}</b>${statusChip(num(r.active) ? "ok" : "bad", num(r.active) ? t("مفعّلة") : t("متوقفة"))}<span class="sm">${h(t(DAYS[num(r.weekday)]))} ${String(num(r.hour)).padStart(2, "0")}:${String(num(r.minute)).padStart(2, "0")} UTC · ${num(r.duration_h)}${h(t("س"))}</span></div>
