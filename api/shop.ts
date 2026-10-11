@@ -39,6 +39,8 @@ await run(`CREATE TABLE IF NOT EXISTS announcements (id ${serial}, title TEXT NO
 for (const tb of ["categories", "products", "farms", "random_boxes"]) await alter(`ALTER TABLE ${tb} ADD COLUMN cap TEXT NOT NULL DEFAULT ''`);
 await alter(`ALTER TABLE farms ADD COLUMN qty INT NOT NULL DEFAULT 1`);
 await alter(`ALTER TABLE farms ADD COLUMN show_qty INT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE farms ADD COLUMN barn INT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE farms ADD COLUMN silo INT NOT NULL DEFAULT 0`);
 await run(`CREATE TABLE IF NOT EXISTS hd_groups (id ${serial}, name TEXT NOT NULL, url TEXT NOT NULL, descr TEXT, image TEXT, sort INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 
 // ---------- seed ----------
@@ -192,9 +194,9 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     return ok({ price, items: rows.map((r) => ({ id: num(r.id), n: r.name, l: num(r.level), b: r.building, p: r.price == null ? price : num(r.price), img: `${WEB_ORIGIN}/img/food/f${String(num(r.id)).padStart(3, "0")}.webp` })) });
   },
   async farms() {
-    const rows = await run(`SELECT id, name, descr, cap, level, price, qty, show_qty, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
+    const rows = await run(`SELECT id, name, descr, cap, level, price, qty, show_qty, barn, silo, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
     const fp = await getItemPrices("farm", rows.map((f) => num(f.id)));
-    return ok({ farms: rows.map((f) => ({ prices: fp.get(num(f.id)) ?? {}, avail: num(f.show_qty) > 0 ? num(f.show_qty) : num(f.qty), id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
+    return ok({ farms: rows.map((f) => ({ barn: num(f.barn), silo: num(f.silo), prices: fp.get(num(f.id)) ?? {}, avail: num(f.show_qty) > 0 ? num(f.show_qty) : num(f.qty), id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
   },
   async codes() {
     const rows = await run(`SELECT p.id, p.name, p.descr, p.cap, p.price, ${IMG("image", "p.")}, (SELECT COUNT(*) FROM sub_codes s WHERE s.product_id = p.id AND s.status = 'available') stock FROM products p WHERE p.kind = 'code' AND p.active = 1 ORDER BY p.id`);

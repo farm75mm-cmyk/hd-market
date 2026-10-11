@@ -48,6 +48,7 @@ export async function adminAct(act: string, f0: F, visibleForm: Record<string, s
         if (act === "farm_save" && "qty" in visibleForm) {
           const q = Math.max(0, Math.floor(Number(f("qty"))) || 0), sq = Math.max(0, Math.floor(Number(f("show_qty"))) || 0);
           await run(`UPDATE farms SET qty = $1, show_qty = $2, sold = CASE WHEN $1 > 0 THEN 0 ELSE 1 END WHERE id = $3`, [q, sq, id]);
+          await run(`UPDATE farms SET barn = $1, silo = $2 WHERE id = $3`, [Math.max(0, Math.floor(Number(f("barn"))) || 0), Math.max(0, Math.floor(Number(f("silo"))) || 0), id]);
         }
       }
     } catch (e) { console.error("[extras]", e); }
