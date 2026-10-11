@@ -79,14 +79,20 @@ export function imgUrl(kind: string, r: Row): string | null {
   return `${API_ORIGIN}/img/${kind}/${r.id}?v=${vOf(r)}`;
 }
 const IMG_TABLES: Record<string, [string, string]> = { c: ["categories", "image"], p: ["products", "image"], f: ["farms", "image"], b: ["random_boxes", "image"], m: ["payment_methods", "icon"], g: ["hd_groups", "image"], n: ["announcements", "image"], e: ["hd_events", "image"], w: ["hd_news", "image"] };
-export async function imgResponse(kind: string, id: number): Promise<Response> {
+const IMG_LRU = new Map<string, { b: Uint8Array; ct: string }>();
+export async function imgResponse(kind: string, id: number, ver = ""): Promise<Response> {
+  const ck = ver ? `${kind}:${id}:${ver}` : "";
+  const hit = ck ? IMG_LRU.get(ck) : undefined;
+  const hdr = (ct: string) => ({ "Content-Type": ct, "Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*" });
+  if (hit) { IMG_LRU.delete(ck); IMG_LRU.set(ck, hit); return new Response(hit.b, { headers: hdr(hit.ct) }); }
   const t = IMG_TABLES[kind];
   const row = t ? await first(`SELECT ${t[1]} AS image FROM ${t[0]} WHERE id = $1`, [id]) : undefined;
   const v = String(row?.image ?? "");
   const m = v.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
   if (!m) return new Response("Not found", { status: 404 });
   const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
-  return new Response(bytes, { headers: { "Content-Type": m[1], "Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*" } });
+  if (ck) { IMG_LRU.set(ck, { b: bytes, ct: m[1] }); if (IMG_LRU.size > 60) IMG_LRU.delete(IMG_LRU.keys().next().value as string); }
+  return new Response(bytes, { headers: hdr(m[1]) });
 }
 
 // ---------- push to everyone ----------
@@ -162,20 +168,13 @@ if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_hide_sections_v1
 
 export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async home() {
-    const cats = await run(`SELECT c.id, c.name, c.name_en, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c WHERE c.active = 1 ORDER BY c.sort, c.id`);
-    const ann = await run(`SELECT id, title, body, ${IMG()}, pinned, created_at FROM announcements WHERE active = 1 ORDER BY pinned DESC, id DESC LIMIT 20`);
-    const fimg = (await run(`SELECT id, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 AND length(image) > 100 ORDER BY id DESC LIMIT 1`))[0];
-    const grp = await run(`SELECT id, name, url, descr, ${IMG()} FROM hd_groups WHERE active = 1 ORDER BY sort, id`);
+    const [cats, ann, fimgR, grp] = await Promise.all([run(`SELECT c.id, c.name, c.name_en, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c WHERE c.active = 1 ORDER BY c.sort, c.id`), run(`SELECT id, title, body, ${IMG()}, pinned, created_at FROM announcements WHERE active = 1 ORDER BY pinned DESC, id DESC LIMIT 20`), run(`SELECT id, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 AND length(image) > 100 ORDER BY id DESC LIMIT 1`), run(`SELECT id, name, url, descr, ${IMG()} FROM hd_groups WHERE active = 1 ORDER BY sort, id`)]);
+    const fimg = fimgR[0];
     return ok({
       categories: cats.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), count: num(c.n) })),
       announcements: ann.map((a) => ({ id: num(a.id), title: a.title, body: a.body, image: imgUrl("n", a), pinned: num(a.pinned), created_at: num(a.created_at) })),
       groups: grp.map((g) => ({ id: num(g.id), name: g.name, url: g.url, descr: g.descr ?? "", image: imgUrl("g", g) })),
-      counts: {
-        opt: await count(`SELECT COUNT(*) c FROM opt_items WHERE active = 1`),
-        farms: await count(`SELECT COUNT(*) c FROM farms WHERE active = 1 AND sold = 0`),
-        codes: await count(`SELECT COUNT(*) c FROM products p WHERE p.kind = 'code' AND p.active = 1`),
-        boxes: await count(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`),
-      },
+      counts: await (async () => { const [opt, farms, codes, boxes] = await Promise.all([count(`SELECT COUNT(*) c FROM opt_items WHERE active = 1`), count(`SELECT COUNT(*) c FROM farms WHERE active = 1 AND sold = 0`), count(`SELECT COUNT(*) c FROM products p WHERE p.kind = 'code' AND p.active = 1`), count(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`)]); return { opt, farms, codes, boxes }; })(),
       farm_img: fimg ? imgUrl("f", fimg) : null,
       rates: await getRates(),
       currencies: CURRENCIES.map((c) => ({ code: c, dec: DEC[c], name: CNAMES[c]?.[0] ?? null, name_en: CNAMES[c]?.[1] ?? null })),

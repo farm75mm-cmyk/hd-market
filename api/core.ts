@@ -92,6 +92,7 @@ await run(`CREATE TABLE IF NOT EXISTS notifications (id ${serial}, user_id BIGIN
 await run(`CREATE TABLE IF NOT EXISTS audit_logs (id ${serial}, actor TEXT NOT NULL, action TEXT NOT NULL, entity TEXT, entity_id TEXT, details TEXT, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS reversals (id ${serial}, deposit_id BIGINT NOT NULL UNIQUE, txn_id TEXT NOT NULL, reversal_txn_id TEXT NOT NULL, amount NUMERIC(20,4) NOT NULL, currency TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, created_at BIGINT NOT NULL)`);
 await run(`CREATE INDEX IF NOT EXISTS notif_user ON notifications (user_id, id)`);
+for (const ix of ["CREATE INDEX IF NOT EXISTS orders_user ON orders (user_id, id)", "CREATE INDEX IF NOT EXISTS msgs_user ON messages (user_id, id)", "CREATE INDEX IF NOT EXISTS push_user ON push_tokens (user_id)"]) { try { await run(ix); } catch {} }
 await run(`CREATE INDEX IF NOT EXISTS dep_user ON deposit_orders (user_id, id)`);
 await run(`CREATE INDEX IF NOT EXISTS tx_user ON transactions (user_id, id)`);
 // Financial records can never be changed or deleted from SQL (enforced by the database itself).

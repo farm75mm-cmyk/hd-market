@@ -116,7 +116,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     const methods = (await run(`SELECT id, name, currency, info, instructions, min_amount, max_amount, expiry_minutes, ${IMG("icon")} FROM payment_methods WHERE active = 1 ORDER BY id`))
       .map((m) => ({ id: num(m.id), name: m.name, currency: m.currency, icon: imgUrl("m", m), info: m.info, instructions: m.instructions, min_amount: num(m.min_amount), max_amount: num(m.max_amount), expiry_minutes: num(m.expiry_minutes) }));
     return ok({
-      maintenance: { on: (await getSet("maint_on")) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
+      maintenance: { on: (await maintNow()) === "1", message: await getSet("maint_msg", "التطبيق تحت الصيانة حاليًا. نعود قريبًا.") },
       banner: { on: (await getSet("banner_on")) === "1", text: await getSet("banner_text") },
       force_update: await getSet("force_update", "0"),
       ai: { on: (await getSet("ai_on", "1")) === "1" },
@@ -286,13 +286,27 @@ const API: Record<string, (b: Row) => Promise<Response>> = { ...BASE, ...SHOP, .
 Bun.serve({
   port: Number(env("PORT", "3000")),
   maxRequestBodySize: 2 * 1024 * 1024,
-  async fetch(req) {
+  async fetch(req) { return gz(req, await handleReq(req)); },
+});
+const gz = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const ct = res.headers.get("Content-Type") ?? "";
+    if (!/(json|html|javascript|text\/plain)/.test(ct) || res.headers.has("Content-Encoding") || !(req.headers.get("accept-encoding") ?? "").includes("gzip")) return res;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length < 1200) return new Response(buf, { status: res.status, headers: res.headers });
+    const h = new Headers(res.headers); h.set("Content-Encoding", "gzip"); h.set("Vary", "Accept-Encoding"); h.delete("Content-Length");
+    return new Response(Bun.gzipSync(buf), { status: res.status, headers: h });
+  } catch { return res; }
+};
+let maintAt = 0, maintOn = "";
+const maintNow = async () => { if (Date.now() - maintAt > 3000) { maintOn = await getSet("maint_on"); maintAt = Date.now(); } return maintOn; };
+async function handleReq(req: Request): Promise<Response> {
     const url = new URL(req.url), path = url.pathname.replace(/\/+$/, "") || "/";
     try {
       if (path === "/health") return json({ ok: true });
       if (path === "/admin") return await admin(req);
       const im = path.match(/^\/img\/([a-z])\/(\d+)$/);
-      if (im && req.method === "GET") return await imgResponse(im[1], Number(im[2]));
+      if (im && req.method === "GET") return await imgResponse(im[1], Number(im[2]), url.searchParams.get("v") ?? "");
       const m = path.match(/^\/api\/(\w+)(?:\.php)?$/);
       if (m) {
         if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -314,6 +328,5 @@ Bun.serve({
       console.error(e);
       return json({ error: "server" }, 500);
     }
-  },
-});
+}
 console.log("HD Market server up");

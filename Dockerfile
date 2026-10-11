@@ -1,7 +1,7 @@
 FROM php:8.3-apache
 
 RUN docker-php-ext-install pdo_mysql \
- && a2enmod headers rewrite \
+ && a2enmod headers rewrite deflate expires \
  && { echo 'ServerTokens Prod'; echo 'ServerSignature Off'; } > /etc/apache2/conf-available/hardening.conf \
  && { echo '<Directory /var/www/html>'; echo '  AllowOverride All'; echo '</Directory>'; } >> /etc/apache2/conf-available/hardening.conf \
  && a2enconf hardening \
