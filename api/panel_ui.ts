@@ -85,7 +85,7 @@ a{color:inherit}h2{font-size:17px;margin:0 0 12px;font-weight:800}h3{font-size:1
 .mini div{background:#fff;border:1px solid #eceef5;border-radius:16px;padding:12px 14px}.mini b{display:block;font-size:22px}.mini small{color:#6b7488}
 .ql{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #eceef5;border-radius:20px;padding:14px 16px;margin-bottom:12px;text-decoration:none;color:#1e3a9e;font-weight:800;font-size:18px}
 .ql span:last-child{flex:1}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>.grow{flex:1;min-width:140px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}img.th{width:72px!important;height:72px!important;max-width:72px!important;border-radius:14px;object-fit:cover;background:#eef0f6;flex:none}.row .pst{flex-basis:100%;min-width:0;overflow-wrap:anywhere}.bigimg img.th{width:110px!important;height:110px!important;max-width:110px!important}.row>.grow{flex:1;min-width:140px}
 input[type=text],input[type=number],input[type=password],input[type=search],select,textarea{padding:11px 12px;border:1.5px solid #dfe3ee;border-radius:12px;font:inherit;background:#fff;color:inherit;max-width:100%}
 textarea{width:100%;min-height:76px}input[type=text].w,input[type=number].w{width:100%}
 label.f{display:block;font-weight:700;font-size:13px;color:#4b5568;margin:0 0 4px}.fg{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:10px}
