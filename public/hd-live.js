@@ -160,7 +160,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   async function loadHome() {
     const r = await api("home", {});
     if (!r.ok) return;
-    HD.rates = r.rates; HD.counts = r.counts; HD.grp = r.groups; HD.anns = r.announcements;
+    HD.rates = r.rates; HD.counts = r.counts; HD.grp = r.groups; HD.anns = r.announcements; HD.layout = r.layout || { order: [], hide: [] }; LSs("layout", HD.layout);
     if (typeof evLoad === "function" && Date.now() - (HD.evAt || 0) > 20000) evLoad();
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
   }
@@ -181,19 +181,22 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (opt && !ready) { drawBar(); const l = $("ol"); if (l && document.activeElement && !document.activeElement.classList.contains("qn")) drawOl(); }
   }
   const tile = (attr, emoji, name, sub, tint) => `<div class="cc" style="--t:${tint}" ${attr}><div class="pic">${emoji}</div><h3>${name}</h3><small>${sub}</small><span class="go2"></span></div>`;
+  HD.layout = LSg("layout", { order: [], hide: [] });
   HD.favs = new Set(LSg("favs", []));
   HD.chip = "all";
   const TINTS = ["#E7F6EA", "#E6EEFC", "#FDF0E0", "#F6E8F7", "#FCE8EE"];
   function homeItems() {
     const s = S[L], c = HD.counts || {}, out = [];
     if (c.farms) out.push({ k: "farms", n: xt("farms"), e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
-    for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, e: "🏪", sub: `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
+    for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, e: "🏪", sub: x.price != null ? `${xt("price")}: <b>${mon(x.price)}</b>` : `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
     if (c.opt) out.push({ k: "opt", n: s.opt, mos: 1, e: "🍽️", sub: s.cnt(OPT.length), attr: 'data-p="1"', hay: OPT.map((o) => o.n).join(" ") });
     if (c.codes) out.push({ k: "codes", n: xt("codes"), e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
     if (c.boxes) out.push({ k: "boxes", n: xt("boxes"), e: "🎁", sub: `${c.boxes} ${xt("bx")}`, attr: 'data-x="boxes"' });
     out.push({ k: "events", n: evT(), e: "🌾", sub: (() => { const a = HD.ev ? evList().filter((x) => x.st === "running").length : 0; return a ? `${a} ${Z("جارٍ الآن", "running", "đang chạy", "进行中")}` : Z("الشاحنة · السفينة · الدربي", "Truck · Boat · Derby", "Xe tải · Thuyền · Derby", "卡车 · 船 · 德比"); })(), attr: 'data-x="events"' });
     if (HD.grp && HD.grp.length) out.push({ k: "groups", n: xt("groups"), e: "💬", sub: `${HD.grp.length}`, attr: 'data-x="groups"' });
-    return out;
+    const L2 = HD.layout || {}, hid = L2.hide || [], ord = L2.order || [];
+    const vis = out.filter((x) => !hid.includes(x.k)), pos = (k) => { const i = ord.indexOf(k); return i < 0 ? 1e6 : i; };
+    return vis.map((x, i) => [x, i]).sort((a, b) => pos(a[0].k) - pos(b[0].k) || a[1] - b[1]).map((a) => a[0]);
   }
   drawGrid = function () {
     const g = $("cg");
@@ -210,12 +213,12 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!c) return;
     HD.open = id;
     const ps = HD.prods.filter((p) => p.category_id == id);
-    $("panel").innerHTML = `<h2>${E(c.name)}</h2>` + (ps.length ? ps.map((p) => {
+    $("panel").innerHTML = `<h2>${E(c.name)}</h2>${c.descr ? `<p class="xmut" style="white-space:pre-wrap">${E(c.descr)}</p>` : ""}${c.price != null ? `<div class="xr"><span class="xchip">${xt("price")}: <b>${mon(c.price)}</b></span></div>` : ""}` + (ps.length ? ps.map((p) => {
       const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
       const q = Math.min(HD.qty[p.id] || 1, Math.max(1, cap));
       return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(p.name)}</b><small>${xt("qty")}: ${p.qty < 0 ? "∞" : p.qty}</small><small>${xt("pack")}: ${p.pack > 1 ? p.pack : 1}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}<small>${xt("price")}: <b>${mon(p.price)}</b></small>` +
         (p.qty != 0 ? `<div class="xr"><button class="xs" data-x="q:${p.id}:-1">−</button><b>${q}</b><button class="xs" data-x="q:${p.id}:1">+</button><button class="xbtn" data-x="buy:${p.id}">${xt("buy")}</button></div>` : `<span class="xchip bad">${xt("sold")}</span>`) + `</div></div>`;
-    }).join("") : `<p class="empty">${xt("noprod")}</p>`);
+    }).join("") : (c.price != null || c.descr ? `<button class="xbtn" style="width:100%;margin-top:14px;padding:13px" data-x="gosup">${Z("للطلب تواصل مع الدعم", "Contact support to order", "Liên hệ hỗ trợ để đặt", "联系客服下单")}</button>` : `<p class="empty">${xt("noprod")}</p>`));
     $("sheet").classList.add("show");
   }
 
@@ -870,7 +873,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       if (HD.notif) { post({ type: "login", token: TOKEN, tone: HD.tone }); toast(xt("notifon")); }
       else { call("push_unregister", {}); toast(xt("notifoff")); }
     }
-    else if (a == "gosup") { HD.page = null; tab = 4; drawShop(); scrollTo(0, 0); }
+    else if (a == "gosup") { closeX(); HD.page = null; tab = 4; drawShop(); scrollTo(0, 0); }
     else if (a == "alerts") { HD.page = "alerts"; drawShop(); }
     else if (a == "aiopen") aiOpen();
     else if (a == "aiback") aiBack();

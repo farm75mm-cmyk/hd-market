@@ -58,13 +58,32 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     // ----- store: categories & tool products -----
     case "cat_save": {
       const name = f("name").trim().slice(0, 60); if (!name) return "اسم القسم مطلوب";
-      const nameEn = f("name_en").trim().slice(0, 60), sort = Number(f("sort")) || 0, active = bool(f("active"));
+      const nameEn = f("name_en").trim().slice(0, 60), active = bool(f("active")), descr = f("descr").trim().slice(0, 1000);
+      const pr = f("price").trim(), price = pr === "" || !Number.isFinite(Number(pr)) ? null : Math.max(0, Number(pr));
       if (id > 0) {
-        await run(`UPDATE categories SET name = $1, name_en = $2, sort = $3, active = $4 WHERE id = $5`, [name, nameEn, sort, active, id]);
+        await run(`UPDATE categories SET name = $1, name_en = $2, active = $3, price = $4, descr = $5 WHERE id = $6`, [name, nameEn, active, price, descr, id]);
         if (f("remove_image") === "1" && !img) await run(`UPDATE categories SET image = NULL WHERE id = $1`, [id]);
         if (img) await run(`UPDATE categories SET image = $1 WHERE id = $2`, [img, id]);
-      } else await run(`INSERT INTO categories (name, name_en, image, sort, active, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [name, nameEn, img || null, sort, active, t]);
+      } else {
+        const mx = await first(`SELECT COALESCE(MAX(sort),0) m FROM categories`);
+        await run(`INSERT INTO categories (name, name_en, image, sort, active, price, descr, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [name, nameEn, img || null, Number(mx?.m ?? 0) + 1, active, price, descr, t]);
+      }
       return "تم حفظ القسم";
+    }
+    case "home_order": {
+      const keys = [...new Set(f("order").split(",").map((x) => x.trim()).filter((x) => /^(farms|opt|codes|boxes|groups|events|c\d+)$/.test(x)))];
+      if (!keys.length) return "ترتيب غير صالح";
+      await putSet("home_order", JSON.stringify(keys));
+      let i = 0; for (const k of keys) if (k[0] === "c" && /^c\d+$/.test(k)) await run(`UPDATE categories SET sort = $1 WHERE id = $2`, [++i, Number(k.slice(1))]);
+      return "تم حفظ ترتيب الأقسام";
+    }
+    case "home_vis": {
+      const key = f("key"), on = f("on") === "1";
+      if (/^c\d+$/.test(key)) { await run(`UPDATE categories SET active = $1 WHERE id = $2`, [on ? 1 : 0, Number(key.slice(1))]); return "تم تحديث ظهور القسم"; }
+      if (!/^(farms|opt|codes|boxes|groups|events)$/.test(key)) return "قسم غير معروف";
+      let hide: string[] = []; try { hide = JSON.parse(await getSet("home_hide", "[]")); } catch {}
+      hide = hide.filter((x) => x !== key); if (!on) hide.push(key);
+      await putSet("home_hide", JSON.stringify(hide)); return "تم تحديث ظهور القسم";
     }
     case "cat_del": await run(`DELETE FROM products WHERE category_id = $1 AND kind = 'tool'`, [id]); await run(`DELETE FROM categories WHERE id = $1`, [id]); return "تم حذف القسم ومنتجاته";
     case "prod_save": {

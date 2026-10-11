@@ -185,7 +185,7 @@ async function auditPage(ctx: Ctx): Promise<Page> {
 async function categoriesPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid, url } = ctx;
   const sp = url.searchParams, catId = Number(sp.get("cat")) || 0;
-  const cats = await run(`SELECT id, name, name_en, sort, active, ${IMG()} FROM categories ORDER BY sort, id`);
+  const cats = await run(`SELECT id, name, name_en, sort, active, price, descr, ${IMG()} FROM categories ORDER BY sort, id`);
   const back = (title: string) => `<div class="lh"><a class="bk" href="/admin?tab=categories" aria-label="back">${ic("chevR", 22)}</a><h2>${h(title)}</h2></div>`;
   const cat = cats.find((c: any) => Number(c.id) === catId);
   if (cat) {
@@ -225,7 +225,9 @@ async function categoriesPage(ctx: Ctx): Promise<Page> {
       <button type="button" class="gb" onclick="var f=this.form;f.remove_image.value=1;f.image.value='';f.querySelector('img.th').style.visibility='hidden'">${h(t("إزالة الصورة"))} ${ic("trash", 18)}</button>
       ${field(t("الاسم بالعربية"), `<input type="text" class="w" name="name" value="${h(c?.name ?? "")}" required>`)}
       ${field(t("الاسم بالإنجليزية"), `<input type="text" class="w" name="name_en" value="${h(c?.name_en ?? "")}" dir="ltr" style="text-align:left">`)}
-      ${field(t("الترتيب (رقم أصغر = أعلى)"), `<input type="number" class="w" name="sort" value="${c ? num(c.sort) : cats.length + 1}">`)}
+      ${field(t("السعر (USDT) — اختياري، يمكن تعديله لاحقًا"), `<input type="number" class="w" step="any" min="0" name="price" placeholder="${h(t("بدون سعر"))}" value="${c && c.price != null ? num(c.price) : ""}">`)}
+      ${field(t("الوصف"), `<textarea class="w" name="descr" rows="3" maxlength="1000">${h(c?.descr ?? "")}</textarea>`)}
+      <p class="hint" style="text-align:right">${h(t("لتغيير مكان القسم في المتجر اسحبه بمقبض ⠿ في قائمة الأقسام."))}</p>
       <label class="tgr"><span>${h(t("ظاهر للمستخدمين"))}</span><input class="tg" type="checkbox" name="active" value="1"${!c || num(c.active) ? " checked" : ""}></label>
       <button class="k">${h(t("حفظ"))}</button>`, "");
     const extra = c ? `<a class="gb" href="/admin?tab=categories&cat=${c.id}">${h(t("إدارة محتوى القسم"))} ${ic("box", 18)}</a>${F("cat_del", `${hid("id", c.id)}<button class="gb rd" onclick="return confirm('${h(t("حذف القسم وكل منتجاته؟"))}')">${h(t("حذف"))} ${ic("trash", 18)}</button>`, "")}` : "";
@@ -233,19 +235,35 @@ async function categoriesPage(ctx: Ctx): Promise<Page> {
   };
   const row = (href: string, img: string, title: string, sub: string, sh = "") => `<a class="lr" href="${href}"${sh ? ` data-sh="${sh}"` : ""}>${img}<span class="lt"><b>${h(title)}</b><small>${h(sub)}</small></span>${ic("chevL", 20)}</a>`;
   const tileImg = (tab: string) => `<span class="li">${tabTile(tab, 62)}</span>`;
-  let rows = row("/admin?tab=farms", tileImg("farms"), t("المزارع") + " · Farms", `${await cnt(`SELECT COUNT(*) c FROM farms WHERE active = 1 AND sold = 0`)} ${t("عنصر")}`);
+  let hide: string[] = [], order: string[] = [];
+  try { hide = JSON.parse(await getSet("home_hide", "[]")); } catch {}
+  try { order = JSON.parse(await getSet("home_order", "[]")); } catch {}
+  const items: { key: string; vis: boolean; html: string }[] = [];
+  const builtin = async (key: string, href: string, tab: string, title: string, q: string) => items.push({ key, vis: !hide.includes(key), html: row(href, tileImg(tab), title, `${await cnt(q)} ${t("عنصر")}`) });
+  await builtin("farms", "/admin?tab=farms", "farms", t("المزارع") + " · Farms", `SELECT COUNT(*) c FROM farms WHERE active = 1 AND sold = 0`);
+  await builtin("opt", "/admin?tab=opt_prices", "opt_prices", t("منتجات اختياري"), `SELECT COUNT(*) c FROM opt_items WHERE active = 1`);
+  await builtin("codes", "/admin?tab=codes", "codes", t("أكواد الاشتراك"), `SELECT COUNT(*) c FROM sub_codes WHERE status = 'available'`);
+  await builtin("boxes", "/admin?tab=random", "random", t("المنتجات العشوائية"), `SELECT COUNT(*) c FROM random_boxes WHERE active = 1`);
+  await builtin("groups", "/admin?tab=groups", "groups", t("المجموعات"), `SELECT COUNT(*) c FROM hd_groups WHERE active = 1`);
+  await builtin("events", "/admin?tab=events", "events", t("أحداث Hay Day") + " 🌾", `SELECT COUNT(*) c FROM hd_events WHERE active = 1`);
   let sheets = sheet(null);
   for (const c of cats) {
     const n = await cnt(`SELECT COUNT(*) c FROM products WHERE kind = 'tool' AND category_id = ${Number(c.id)}`);
     const img = imgUrl("c", c);
-    rows += row(`/admin?tab=categories&cat=${c.id}`, img ? `<img class="li" src="${h(img)}" alt="">` : tileImg("categories"), c.name_en ? `${c.name_en} · ${c.name}` : c.name, `${n} ${t("عنصر")}${num(c.active) ? "" : " · " + t("مخفي")}`, `s_${c.id}`);
+    items.push({ key: "c" + c.id, vis: !!num(c.active), html: row(`/admin?tab=categories&cat=${c.id}`, img ? `<img class="li" src="${h(img)}" alt="">` : tileImg("categories"), c.name_en ? `${c.name_en} · ${c.name}` : c.name, `${c.price != null ? usdtFmt(num(c.price)) + " USDT · " : ""}${n} ${t("عنصر")}${num(c.active) ? "" : " · " + t("مخفي")}`, `s_${c.id}`) });
     sheets += sheet(c);
   }
-  rows += row("/admin?tab=opt_prices", tileImg("opt_prices"), t("منتجات اختياري"), `${await cnt(`SELECT COUNT(*) c FROM opt_items WHERE active = 1`)} ${t("عنصر")}`);
-  rows += row("/admin?tab=codes", tileImg("codes"), t("أكواد الاشتراك"), `${await cnt(`SELECT COUNT(*) c FROM sub_codes WHERE status = 'available'`)} ${t("عنصر")}`);
-  rows += row("/admin?tab=random", tileImg("random"), t("المنتجات العشوائية"), `${await cnt(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`)} ${t("عنصر")}`);
-  const js = PICK_JS + `<script>document.addEventListener("click",function(e){var a=e.target.closest("[data-sh]");if(a){e.preventDefault();document.getElementById(a.dataset.sh).hidden=false;document.body.style.overflow="hidden";return}if(e.target.dataset&&e.target.dataset.close){var w=e.target.closest(".shw");w.hidden=true;document.body.style.overflow=""}});</script>`;
-  return { title: t("أقسام المتجر والأدوات"), body: `<div class="lh"><h2>${h(t("أقسام المتجر"))}</h2><a class="plus" href="#" data-sh="s_new" aria-label="add">${ic("plus", 26)}</a></div><div class="lc">${rows}</div>${sheets}`, js };
+  const pos = (k: string) => { const i = order.indexOf(k); return i < 0 ? 1e6 : i; };
+  items.sort((a, b) => pos(a.key) - pos(b.key)); // stable: unknown keys keep default order at the end
+  const rows = items.map((x) => `<div class="dr" data-k="${x.key}"><span class="dg" aria-label="drag">⠿</span>${x.html}${F("home_vis", `${hid("key", x.key)}<input type="hidden" name="on" value="${x.vis ? 1 : 0}"><input class="tg" type="checkbox"${x.vis ? " checked" : ""} aria-label="visible" onchange="this.form.on.value=this.checked?1:0;this.form.submit()">`, "")}</div>`).join("");
+  const css = `<style>.lc .dr{display:flex;align-items:center;gap:6px;border-bottom:1px solid #eceef5;background:#fff;padding-inline-end:12px}.lc .dr:last-child{border-bottom:0}.lc .dr .lr{flex:1;min-width:0;border:0}.dg{padding:18px 12px;cursor:grab;touch-action:none;color:#8b93a7;font-size:24px;line-height:1;user-select:none;-webkit-user-select:none}.dr.drag{background:#f1efff;box-shadow:0 8px 22px #0003;position:relative;z-index:3}#svn{position:fixed;bottom:18px;inset-inline:0;margin:auto;width:max-content;background:#111;color:#fff;border-radius:99px;padding:9px 18px;font-weight:700;display:none;z-index:200}</style>`;
+  const dnd = `<script>(function(){var lc=document.querySelector(".lc"),cur=null,CS=${JSON.stringify(ctx.csrf)};
+document.addEventListener("pointerdown",function(e){var g=e.target.closest&&e.target.closest(".dg");if(!g)return;cur=g.closest(".dr");cur.classList.add("drag");e.preventDefault()});
+document.addEventListener("pointermove",function(e){if(!cur)return;if(e.clientY<90)scrollBy(0,-14);else if(e.clientY>innerHeight-90)scrollBy(0,14);var rs=[].slice.call(lc.querySelectorAll(".dr"));for(var i=0;i<rs.length;i++){var r=rs[i];if(r===cur)continue;var b=r.getBoundingClientRect();if(e.clientY>b.top&&e.clientY<b.bottom){lc.insertBefore(cur,e.clientY<b.top+b.height/2?r:r.nextSibling);break}}});
+function end(){if(!cur)return;cur.classList.remove("drag");cur=null;var ks=[].map.call(lc.querySelectorAll(".dr"),function(r){return r.dataset.k});var b=new URLSearchParams();b.set("csrf",CS);b.set("do","home_order");b.set("order",ks.join(","));var n=document.getElementById("svn");fetch("/admin?tab=categories",{method:"POST",body:b,credentials:"same-origin"}).then(function(r){n.textContent=r.ok?${JSON.stringify("✓ " + t("تم حفظ الترتيب"))}:${JSON.stringify(t("تعذّر الحفظ"))};n.style.display="block";setTimeout(function(){n.style.display="none"},1600)}).catch(function(){n.textContent=${JSON.stringify(t("تعذّر الحفظ"))};n.style.display="block"})}
+document.addEventListener("pointerup",end);document.addEventListener("pointercancel",end)})();</script>`;
+  const js = PICK_JS + dnd + `<script>document.addEventListener("click",function(e){var a=e.target.closest("[data-sh]");if(a){e.preventDefault();document.getElementById(a.dataset.sh).hidden=false;document.body.style.overflow="hidden";return}if(e.target.dataset&&e.target.dataset.close){var w=e.target.closest(".shw");w.hidden=true;document.body.style.overflow=""}});</script>`;
+  return { title: t("أقسام المتجر والأدوات"), body: `${css}<div class="lh"><h2>${h(t("أقسام المتجر"))}</h2><a class="plus" href="#" data-sh="s_new" aria-label="add">${ic("plus", 26)}</a></div><p class="hint">${h(t("اسحب المقبض ⠿ لترتيب الأقسام كما تظهر في المتجر، والمفتاح لإظهار القسم أو إخفائه. الإضافة والتعديل والحذف من القسم نفسه."))}</p><div class="lc">${rows}</div><div id="svn"></div>${sheets}`, js };
 }
 async function farmsPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid } = ctx;

@@ -141,6 +141,15 @@ async function finish(uid: any, idem: string | null, fn: () => Promise<{ id: num
 }
 const prodOut = (p: Row) => ({ need_tag: num(p.need_tag), id: num(p.id), category_id: num(p.category_id), name: p.name, image: imgUrl("p", p), price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order), descr: p.descr ?? "" });
 
+const jlist = (v: string): string[] => { try { const a = JSON.parse(v); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
+export const homeLayout = async () => ({ order: jlist(await getSet("home_order", "[]")), hide: jlist(await getSet("home_hide", "[]")) });
+// one-time: hide the sections that existed before the new section manager (hidden, not deleted: restore from the panel)
+if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_hide_sections_v1"]))) {
+  await run(`UPDATE categories SET active = 0`);
+  await putSet("home_hide", JSON.stringify(["farms", "opt", "codes", "boxes"]));
+  await putSet("seed_hide_sections_v1", "1");
+}
+
 export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async home() {
     const cats = await run(`SELECT c.id, c.name, c.name_en, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c WHERE c.active = 1 ORDER BY c.sort, c.id`);
@@ -157,12 +166,13 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
         boxes: await count(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`),
       },
       rates: await getRates(),
+      layout: await homeLayout(),
     });
   },
   async catalog() {
-    const categories = await run(`SELECT id, name, name_en, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
+    const categories = await run(`SELECT id, name, name_en, price, descr, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
     const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, need_tag, descr, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
-    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c) })), products: products.map(prodOut) });
+    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), price: c.price == null ? null : num(c.price), descr: c.descr ?? "" })), products: products.map(prodOut) });
   },
   async opt_items() {
     const price = await optPrice();

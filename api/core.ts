@@ -61,6 +61,8 @@ await run(`CREATE TABLE IF NOT EXISTS products (id ${serial}, category_id BIGINT
   qty INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 try { await run(`ALTER TABLE categories ADD COLUMN name_en TEXT NOT NULL DEFAULT ''`); } catch {}
 try { await run(`ALTER TABLE categories ADD COLUMN active INT NOT NULL DEFAULT 1`); } catch {}
+try { await run(`ALTER TABLE categories ADD COLUMN price DOUBLE PRECISION`); } catch {}
+try { await run(`ALTER TABLE categories ADD COLUMN descr TEXT NOT NULL DEFAULT ''`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN pack INT NOT NULL DEFAULT 1`); } catch {}
 try { await run(`ALTER TABLE products ADD COLUMN max_order INT NOT NULL DEFAULT 0`); } catch {}
 await run(`CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
