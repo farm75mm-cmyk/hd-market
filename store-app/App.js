@@ -1,7 +1,7 @@
 // HD Market shell: a thin native wrapper around the live web store.
 // All screens, prices and logic come from the server, so changes appear instantly with no APK update.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Linking, Platform, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { BackHandler, Linking, Platform, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
@@ -72,7 +72,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#111" />
+      <StatusBar barStyle="light-content" backgroundColor="#0A0A0A" />
       {failed ? (
         <View style={s.center}>
           <Text style={s.title}>غير متصل بالإنترنت · Offline</Text>
@@ -107,14 +107,13 @@ export default function App() {
           onHttpError={(ev) => ev.nativeEvent.statusCode >= 500 && setFailed(true)}
         />
       )}
-      {loading && !failed ? <View style={s.loader} pointerEvents="none"><ActivityIndicator size="large" color="#e8a900" /></View> : null}
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#111" },
-  web: { flex: 1, backgroundColor: "#f4f4f2" },
+  root: { flex: 1, backgroundColor: "#0A0A0A" },
+  web: { flex: 1, backgroundColor: "#0A0A0A" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f4f4f2", padding: 24 },
   title: { fontSize: 20, fontWeight: "800", color: "#111", marginBottom: 8, textAlign: "center" },
   sub: { fontSize: 15, color: "#555", marginBottom: 20, textAlign: "center" },

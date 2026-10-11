@@ -942,6 +942,20 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   loadCfg();
   loadCat();
   loadHome();
-  loadOpt();
+  setTimeout(loadOpt, 1500);
+  /* ---------- splash controller: hides once config (and the saved session, if any) is resolved; never gets stuck ---------- */
+  (() => {
+    const sp = $("hdsplash"); if (!sp) return;
+    const t0 = Date.now(); let gone = false;
+    const hide = () => { if (gone) return; gone = true; sp.classList.add("out"); document.documentElement.classList.remove("sp-on"); setTimeout(() => sp.remove(), 450); };
+    const ready = () => !!HD.cfg && (!TOKEN || !!ME);
+    const iv = setInterval(() => {
+      if (gone) return clearInterval(iv);
+      const el = Date.now() - t0;
+      if (ready() && el >= 700) { clearInterval(iv); hide(); }
+      else if (el > 9000 && !sp.classList.contains("fail")) sp.classList.add("fail");
+    }, 80);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && ready()) hide(); });
+  })();
   if (TOKEN) post({ type: "login", token: TOKEN, tone: HD.tone });
 })();
