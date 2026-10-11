@@ -154,6 +154,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async home() {
     const cats = await run(`SELECT c.id, c.name, c.name_en, ${IMG("image", "c.")}, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.active = 1 AND p.kind = 'tool') n FROM categories c WHERE c.active = 1 ORDER BY c.sort, c.id`);
     const ann = await run(`SELECT id, title, body, ${IMG()}, pinned, created_at FROM announcements WHERE active = 1 ORDER BY pinned DESC, id DESC LIMIT 20`);
+    const fimg = (await run(`SELECT id, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 AND length(image) > 100 ORDER BY id DESC LIMIT 1`))[0];
     const grp = await run(`SELECT id, name, url, descr, ${IMG()} FROM hd_groups WHERE active = 1 ORDER BY sort, id`);
     return ok({
       categories: cats.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), count: num(c.n) })),
@@ -165,6 +166,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
         codes: await count(`SELECT COUNT(*) c FROM products p WHERE p.kind = 'code' AND p.active = 1`),
         boxes: await count(`SELECT COUNT(*) c FROM random_boxes WHERE active = 1`),
       },
+      farm_img: fimg ? imgUrl("f", fimg) : null,
       rates: await getRates(),
       layout: await homeLayout(),
     });

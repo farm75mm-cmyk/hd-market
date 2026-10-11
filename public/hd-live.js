@@ -160,7 +160,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   async function loadHome() {
     const r = await api("home", {});
     if (!r.ok) return;
-    HD.rates = r.rates; HD.counts = r.counts; HD.grp = r.groups; HD.anns = r.announcements; HD.layout = r.layout || { order: [], hide: [] }; LSs("layout", HD.layout);
+    HD.rates = r.rates; HD.counts = r.counts; HD.farmImg = r.farm_img || null; HD.grp = r.groups; HD.anns = r.announcements; HD.layout = r.layout || { order: [], hide: [] }; LSs("layout", HD.layout);
     if (typeof evLoad === "function" && Date.now() - (HD.evAt || 0) > 20000) evLoad();
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
   }
@@ -187,7 +187,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   const TINTS = ["#E7F6EA", "#E6EEFC", "#FDF0E0", "#F6E8F7", "#FCE8EE"];
   function homeItems() {
     const s = S[L], c = HD.counts || {}, out = [];
-    if (c.farms) out.push({ k: "farms", n: xt("farms"), e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
+    if (c.farms) out.push({ k: "farms", n: xt("farms"), img: HD.farmImg, e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
     for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, e: "🏪", sub: x.price != null ? `${xt("price")}: <b>${mon(x.price)}</b>` : `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
     if (c.opt) out.push({ k: "opt", n: s.opt, mos: 1, e: "🍽️", sub: s.cnt(OPT.length), attr: 'data-p="1"', hay: OPT.map((o) => o.n).join(" ") });
     if (c.codes) out.push({ k: "codes", n: xt("codes"), e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
