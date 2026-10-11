@@ -230,6 +230,30 @@ export async function sendResetMail(to: string, lang: string, code: string) {
 // ---------- wallet core ----------
 export const CURRENCIES = ["JOD", "IQD", "USDT"];
 export const DEC: Record<string, number> = { JOD: 3, IQD: 0, USDT: 4 };
+export const CNAMES: Record<string, [string, string]> = {};
+await run(`CREATE TABLE IF NOT EXISTS currencies_x (code TEXT PRIMARY KEY, name TEXT NOT NULL, name_en TEXT NOT NULL DEFAULT '', dec INT NOT NULL DEFAULT 2, created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS item_prices (kind TEXT NOT NULL, ref_id BIGINT NOT NULL, currency TEXT NOT NULL, price NUMERIC(20,4) NOT NULL, PRIMARY KEY (kind, ref_id, currency))`);
+for (const c of await run(`SELECT * FROM currencies_x ORDER BY created_at`)) { if (!CURRENCIES.includes(c.code)) CURRENCIES.push(c.code); DEC[c.code] = Number(c.dec); CNAMES[c.code] = [c.name, c.name_en || c.name]; }
+/** per-item prices typed by the admin for specific currencies (blank currency = converted from the USDT base price). */
+export async function getItemPrices(kind: string, ids: number[], q: Q = run): Promise<Map<number, Record<string, number>>> {
+  const m = new Map<number, Record<string, number>>(); if (!ids.length) return m;
+  for (const r of await q(`SELECT ref_id, currency, price FROM item_prices WHERE kind = $1 AND ref_id IN (${ids.map((_, i) => "$" + (i + 2)).join(",")})`, [kind, ...ids])) {
+    const k = Number(r.ref_id); (m.get(k) ?? m.set(k, {}).get(k)!)[r.currency] = Number(r.price);
+  }
+  return m;
+}
+export async function setItemPrices(kind: string, id: number, vals: Record<string, string>) {
+  for (const c of CURRENCIES) {
+    if (!(c in vals)) continue;
+    await run(`DELETE FROM item_prices WHERE kind = $1 AND ref_id = $2 AND currency = $3`, [kind, id, c]);
+    const v = Number(String(vals[c]).trim()); if (String(vals[c]).trim() !== "" && Number.isFinite(v) && v > 0) await run(`INSERT INTO item_prices (kind, ref_id, currency, price) VALUES ($1,$2,$3,$4)`, [kind, id, c, v]);
+  }
+}
+export async function addCurrency(code: string, name: string, nameEn: string, dec: number, rate: number) {
+  await run(`INSERT INTO currencies_x (code, name, name_en, dec, created_at) VALUES ($1,$2,$3,$4,$5)`, [code, name, nameEn, dec, Math.floor(Date.now() / 1000)]);
+  await run(`INSERT INTO exchange_rates (currency, per_usdt, updated_at, updated_by) VALUES ($1,$2,$3,'admin') ON CONFLICT (currency) DO NOTHING`, [code, rate, Math.floor(Date.now() / 1000)]);
+  if (!CURRENCIES.includes(code)) CURRENCIES.push(code); DEC[code] = dec; CNAMES[code] = [name, nameEn || name];
+}
 export const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 export const txid = (p: string) => `${p}-${rnd(6).toUpperCase()}`;
 export const STATUS_AR: Record<string, string> = { awaiting_payment: "بانتظار الدفع", proof_sent: "تم إرسال إثبات الدفع", under_review: "قيد المراجعة", verifying: "قيد التحقق", approved: "تمت الموافقة", credited: "تمت إضافة الرصيد", rejected: "مرفوض", cancelled: "ملغي", expired: "منتهي الصلاحية", amount_mismatch: "مبلغ غير مطابق", reversed: "تم عكس العملية" };

@@ -23,10 +23,12 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   const idem = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
   const rates = () => (HD.cfg && HD.cfg.rates) || HD.rates || {};
   const rate = (c) => (c === "USDT" ? 1 : rates()[c] || 1);
-  const cv = (usdt, c = HD.cur) => { const f = 10 ** DEC[c]; return Math.ceil(usdt * rate(c) * f - 1e-7) / f; };
-  const nf = (v, c) => Number(v).toLocaleString("en-US", { minimumFractionDigits: c === "IQD" ? 0 : Math.min(2, DEC[c]), maximumFractionDigits: DEC[c] });
+  const cv = (usdt, c = HD.cur) => { const f = 10 ** (DEC[c] ?? 2); return Math.ceil(usdt * rate(c) * f - 1e-7) / f; };
+  const nf = (v, c) => Number(v).toLocaleString("en-US", { minimumFractionDigits: c === "IQD" ? 0 : Math.min(2, DEC[c] ?? 2), maximumFractionDigits: DEC[c] ?? 2 });
   const amt = (v, c = HD.cur) => `${nf(v, c)} ${c}`;
   const mon = (usdt, c = HD.cur) => amt(cv(usdt, c), c);
+  const hasP = (pr, c = HD.cur) => !!(pr && Number(pr[c]) > 0);
+  const pm = (usdt, pr, c = HD.cur) => hasP(pr, c) ? amt(Number(pr[c]), c) : mon(usdt, c);
   const bal = (c = HD.cur) => (ME && ME.balances ? Number(ME.balances[c] || 0) : 0);
   const fdate = (ts) => new Date(ts * 1000).toLocaleString(LOC[L], { dateStyle: "medium", timeStyle: "short" });
   function setBal(b) {
@@ -160,6 +162,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   async function loadHome() {
     const r = await api("home", {});
     if (!r.ok) return;
+    if (Array.isArray(r.currencies)) for (const c of r.currencies) { if (!CURS.includes(c.code)) CURS.push(c.code); DEC[c.code] = c.dec; if (c.name) CN[c.code] = [c.name, c.name_en || c.name, c.name_en || c.name, c.name_en || c.name]; }
     HD.rates = r.rates; HD.counts = r.counts; HD.farmImg = r.farm_img || null; HD.grp = r.groups; HD.anns = r.announcements; HD.layout = r.layout || { order: [], hide: [] }; LSs("layout", HD.layout);
     if (typeof evLoad === "function" && Date.now() - (HD.evAt || 0) > 20000) evLoad();
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
@@ -193,7 +196,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   function homeItems() {
     const s = S[L], c = HD.counts || {}, out = [];
     if (c.farms) out.push({ k: "farms", n: xt("farms"), img: (HD.tImg || {}).farms || HD.farmImg, cap: (HD.tImg || {}).farms_c, e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
-    for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, cap: x.cap, e: "🏪", sub: x.price != null ? `${xt("price")}: <b>${mon(x.price)}</b>` : `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
+    for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, cap: x.cap, e: "🏪", sub: x.price != null || hasP(x.prices) ? `${xt("price")}: <b>${pm(x.price || 0, x.prices)}</b>` : `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
     if (c.opt) out.push({ k: "opt", n: s.opt, mos: 1, e: "🍽️", sub: s.cnt(OPT.length), attr: 'data-p="1"', hay: OPT.map((o) => o.n).join(" ") });
     if (c.codes) out.push({ k: "codes", n: xt("codes"), img: (HD.tImg || {}).codes, cap: (HD.tImg || {}).codes_c, e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
     if (c.boxes) out.push({ k: "boxes", n: xt("boxes"), img: (HD.tImg || {}).boxes, cap: (HD.tImg || {}).boxes_c, e: "🎁", sub: `${c.boxes} ${xt("bx")}`, attr: 'data-x="boxes"' });
@@ -218,10 +221,10 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!c) return;
     HD.open = id;
     const ps = HD.prods.filter((p) => p.category_id == id);
-    $("panel").innerHTML = `<h2>${E(c.name)}</h2>${c.descr ? `<p class="xmut" style="white-space:pre-wrap">${E(c.descr)}</p>` : ""}${c.price != null ? `<div class="xr"><span class="xchip">${xt("price")}: <b>${mon(c.price)}</b></span></div>` : ""}` + (ps.length ? ps.map((p) => {
+    $("panel").innerHTML = `<h2>${E(c.name)}</h2>${c.descr ? `<p class="xmut" style="white-space:pre-wrap">${E(c.descr)}</p>` : ""}${c.price != null || hasP(c.prices) ? `<div class="xr"><span class="xchip">${xt("price")}: <b>${pm(c.price || 0, c.prices)}</b></span></div>` : ""}` + (ps.length ? ps.map((p) => {
       const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
       const q = Math.min(HD.qty[p.id] || 1, Math.max(1, cap));
-      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${p.cap ? `<span class="xcap">${E(p.cap)}</span>` : ""}<b>${E(p.name)}</b><small>${xt("qty")}: ${p.qty < 0 ? "∞" : p.qty}</small><small>${xt("pack")}: ${p.pack > 1 ? p.pack : 1}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}<small>${xt("price")}: <b>${mon(p.price)}</b></small>` +
+      return `<div class="xp">${p.image ? `<img src="${E(p.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${p.cap ? `<span class="xcap">${E(p.cap)}</span>` : ""}<b>${E(p.name)}</b><small>${xt("qty")}: ${p.qty < 0 ? "∞" : p.qty}</small><small>${xt("pack")}: ${p.pack > 1 ? p.pack : 1}</small>${p.max_order > 0 ? `<span class="xchip">${xt("limit")}: ${p.max_order}</span>` : ""}<small>${xt("price")}: <b>${pm(p.price, p.prices)}</b></small>` +
         (p.qty != 0 ? `<div class="xr"><button class="xs" data-x="q:${p.id}:-1">−</button><b>${q}</b><button class="xs" data-x="q:${p.id}:1">+</button><button class="xbtn" data-x="buy:${p.id}">${xt("buy")}</button></div>` : `<span class="xchip bad">${xt("sold")}</span>`) + `</div></div>`;
     }).join("") : (c.price != null || c.descr ? `<button class="xbtn" style="width:100%;margin-top:14px;padding:13px" data-x="gosup">${Z("للطلب تواصل مع الدعم", "Contact support to order", "Liên hệ hỗ trợ để đặt", "联系客服下单")}</button>` : `<p class="empty">${xt("noprod")}</p>`));
     $("sheet").classList.add("show");
@@ -236,7 +239,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   function drawConfirm() {
     const o = HD.cf; if (!o) return;
-    const tot = cv(o.usdt), have = bal(), low = have < tot;
+    const tot = o.pr && hasP(o.pr.prices) ? Number(o.pr.prices[HD.cur]) * (o.pr.n || 1) : cv(o.usdt), have = bal(), low = have < tot;
     xsheet(`${o.img ? `<img class="xfb" src="${E(o.img)}" alt="" style="width:84px;height:84px;border-radius:18px;object-fit:cover;display:block;margin:0 auto 8px">` : ""}<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${typeof o.extra == "function" ? o.extra() : o.extra || ""}
       <div class="xr" style="margin:8px 0">${CURS.map((c) => `<button class="xchip ${c == HD.cur ? "on" : ""}" data-x="cc:${c}">${c}</button>`).join("")}</div>
       <div class="line"><span>${xt("total")}</span><b>${amt(tot)}</b></div><div class="line"><span>${xt("yourbal")}</span><span>${amt(have)}</span></div><div id="xerr"></div>
@@ -268,7 +271,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!p) return;
     const cap = p.qty < 0 ? (p.max_order > 0 ? p.max_order : 9999) : (p.max_order > 0 ? Math.min(p.qty, p.max_order) : p.qty);
     const q = Math.min(HD.qty[id] || 1, cap);
-    const o = { title: p.name, lines: `${xt("qty")}: ${q}`, usdt: p.price * q, tag: "", cap: "" };
+    const o = { title: p.name, lines: `${xt("qty")}: ${q}`, pr: { prices: p.prices, n: q }, usdt: p.price * q, tag: "", cap: "" };
     if (p.need_tag) o.extra = () => `<div class="xtg"><label>${xt("ftag")}</label><input class="xin" id="xtag" dir="ltr" maxlength="16" placeholder="#ABC123" autocomplete="off" value="${E(o.tag)}"><label>${xt("fcap")}</label><input class="xin" id="xcap" type="number" inputmode="numeric" min="1" placeholder="${xt("fcap")}" value="${E(o.cap)}"></div>`;
     o.run = (cur, key) => {
       const tag = String(o.tag || "").toUpperCase().replace(/^#/, "").trim(), c = Math.floor(Number(o.cap)) || 0;
@@ -294,17 +297,17 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     xsheet(`<h2>${xt("farms")}</h2><div class="empty"><div class="xr" style="justify-content:center">…</div></div>`);
     const r = await api("farms", {}); if (!r.ok) return closeX();
     HD.farms = r.farms;
-    xsheet(`<h2>${xt("farms")}</h2>` + (r.farms.length ? r.farms.map((f) => `<div class="xp"><img class="xfb" src="${E(f.image || FARM_FB)}" alt=""><div class="xpi">${f.cap ? `<span class="xcap">${E(f.cap)}</span>` : ""}<b>${E(f.name)}</b><small>Lv ${f.level}${f.descr ? " · " + E(f.descr) : ""}</small><div class="xr"><b>${mon(f.price)}</b><button class="xbtn" data-x="farmbuy:${f.id}">${xt("buy")}</button></div></div></div>`).join("") + `<p class="xmut" style="margin-top:10px">${xt("farmnote")}</p>` : `<p class="empty">${xt("nofarm")}</p>`));
+    xsheet(`<h2>${xt("farms")}</h2>` + (r.farms.length ? r.farms.map((f) => `<div class="xp"><img class="xfb" src="${E(f.image || FARM_FB)}" alt=""><div class="xpi">${f.cap ? `<span class="xcap">${E(f.cap)}</span>` : ""}<b>${E(f.name)}</b><small>Lv ${f.level}${f.descr ? " · " + E(f.descr) : ""}</small>${f.avail > 0 ? `<small>${Z("المتاح", "Available", "Còn", "可用")}: ${f.avail}</small>` : ""}<div class="xr"><b>${pm(f.price, f.prices)}</b><button class="xbtn" data-x="farmbuy:${f.id}">${xt("buy")}</button></div></div></div>`).join("") + `<p class="xmut" style="margin-top:10px">${xt("farmnote")}</p>` : `<p class="empty">${xt("nofarm")}</p>`));
   }
   async function openCodes() {
     const r = await api("codes", {}); if (!r.ok) return;
     HD.codes = r.codes;
-    xsheet(`<h2>${xt("codes")}</h2>` + (r.codes.length ? r.codes.map((c) => { const q = Math.min(HD.cq[c.id] || 1, Math.max(1, Math.min(10, c.stock))); return `<div class="xp">${c.image ? `<img src="${E(c.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${c.cap ? `<span class="xcap">${E(c.cap)}</span>` : ""}<b>${E(c.name)}</b><small>${E(c.descr)}</small><div><b>${mon(c.price)}</b> ${c.stock > 0 ? `<span class="xchip st-done">${xt("instock")} ${c.stock}</span>` : `<span class="xchip bad">${xt("sold")}</span>`}</div>${c.stock > 0 ? `<div class="xr"><button class="xs" data-x="cq:${c.id}:-1">−</button><b>${q}</b><button class="xs" data-x="cq:${c.id}:1">+</button><button class="xbtn" data-x="codebuy:${c.id}">${xt("buy")}</button></div>` : ""}</div></div>`; }).join("") : `<p class="empty">${xt("nocode")}</p>`));
+    xsheet(`<h2>${xt("codes")}</h2>` + (r.codes.length ? r.codes.map((c) => { const q = Math.min(HD.cq[c.id] || 1, Math.max(1, Math.min(10, c.stock))); return `<div class="xp">${c.image ? `<img src="${E(c.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${c.cap ? `<span class="xcap">${E(c.cap)}</span>` : ""}<b>${E(c.name)}</b><small>${E(c.descr)}</small><div><b>${pm(c.price, c.prices)}</b> ${c.stock > 0 ? `<span class="xchip st-done">${xt("instock")} ${c.stock}</span>` : `<span class="xchip bad">${xt("sold")}</span>`}</div>${c.stock > 0 ? `<div class="xr"><button class="xs" data-x="cq:${c.id}:-1">−</button><b>${q}</b><button class="xs" data-x="cq:${c.id}:1">+</button><button class="xbtn" data-x="codebuy:${c.id}">${xt("buy")}</button></div>` : ""}</div></div>`; }).join("") : `<p class="empty">${xt("nocode")}</p>`));
   }
   async function openBoxes() {
     const r = await api("boxes", {}); if (!r.ok) return;
     HD.boxes = r.boxes;
-    xsheet(`<h2>${xt("boxes")}</h2>` + (r.boxes.length ? r.boxes.map((b) => `<div class="xp">${b.image ? `<img src="${E(b.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${b.cap ? `<span class="xcap">${E(b.cap)}</span>` : ""}<b>${E(b.name)}</b><small>${E(b.descr)}</small><div>${b.prizes.map((p) => `<span class="xchip">${E(p)}</span>`).join("")}</div><div class="xr"><b>${mon(b.price)}</b><button class="xbtn" data-x="boxbuy:${b.id}">${xt("openbox")}</button></div></div></div>`).join("") : `<p class="empty">${xt("nobox")}</p>`));
+    xsheet(`<h2>${xt("boxes")}</h2>` + (r.boxes.length ? r.boxes.map((b) => `<div class="xp">${b.image ? `<img src="${E(b.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi">${b.cap ? `<span class="xcap">${E(b.cap)}</span>` : ""}<b>${E(b.name)}</b><small>${E(b.descr)}</small><div>${b.prizes.map((p) => `<span class="xchip">${E(p)}</span>`).join("")}</div><div class="xr"><b>${pm(b.price, b.prices)}</b><button class="xbtn" data-x="boxbuy:${b.id}">${xt("openbox")}</button></div></div></div>`).join("") : `<p class="empty">${xt("nobox")}</p>`));
   }
   function openGroups() {
     xsheet(`<h2>${xt("groups")}</h2>` + HD.grp.map((g) => `<a class="xp" href="${E(g.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">${g.image ? `<img src="${E(g.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(g.name)}</b><small>${E(g.descr)}</small></div></a>`).join(""));
@@ -860,10 +863,10 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "nwref") nwLoad(true);
     else if (a == "nwopen") nwOpen(i);
     else if (a == "evtab") { HD.evTab = i; evDraw(); }
-    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, img: f.image || FARM_FB, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
+    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, img: f.image || FARM_FB, lines: xt("farmnote"), usdt: f.price, pr: { prices: f.prices, n: 1 }, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
     else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
-    else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
-    else if (a == "boxbuy") { const bx = HD.boxes.find((x) => x.id == i); if (bx) xconfirm({ title: bx.name, lines: Z("الجائزة تُحدَّد عشوائيًا من الخادم.", "The prize is picked randomly by the server.", "Phần thưởng được máy chủ chọn ngẫu nhiên.", "奖品由服务器随机抽取。"), usdt: bx.price, run: (cur, key) => purchase("random_buy", { id: bx.id, currency: cur, idem_key: key }, (o) => (o.lines && o.lines[0] && o.lines[0].prize) || "") }); }
+    else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, pr: { prices: c.prices, n }, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
+    else if (a == "boxbuy") { const bx = HD.boxes.find((x) => x.id == i); if (bx) xconfirm({ title: bx.name, lines: Z("الجائزة تُحدَّد عشوائيًا من الخادم.", "The prize is picked randomly by the server.", "Phần thưởng được máy chủ chọn ngẫu nhiên.", "奖品由服务器随机抽取。"), usdt: bx.price, pr: { prices: bx.prices, n: 1 }, run: (cur, key) => purchase("random_buy", { id: bx.id, currency: cur, idem_key: key }, (o) => (o.lines && o.lines[0] && o.lines[0].prize) || "") }); }
     else if (a == "tx") openTx(b.dataset.x.slice(3));
     else if (a == "canceldep") { const r = await call("deposit_cancel", { order_id: +i }); if (r.ok) { closeX(); loadWalletData(); } else { const el = $("xerr"); if (el) el.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; } }
     // settings

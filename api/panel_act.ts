@@ -1,6 +1,6 @@
 // Admin panel: every POST action. Each returns an Arabic flash message.
 import {
-  run, first, count, withTx, num, nowS, rnd, r4, env, Fail, okImg, actor, isOwner, CURRENCIES, getRates, getSet, putSet, audit, FLOW, moveTo, creditOrder,
+  run, first, count, withTx, num, nowS, rnd, r4, env, Fail, okImg, actor, isOwner, CURRENCIES, DEC, getRates, setItemPrices, addCurrency, getSet, putSet, audit, FLOW, moveTo, creditOrder,
   reverseOrder, notify, flushPush, isDup, Push, sendPush, pushTo,
 } from "./core";
 import { ADMIN_EMAIL, ADMIN_USER } from "./core";
@@ -22,16 +22,35 @@ async function orderNote(id: number, title: string, body: string, tEn: string, b
   await pushTo(Number(o.user_id), "HD Market", title, "orders");
 }
 
-const CAP_T: Record<string, [string, string]> = { cat_save: ["categories", ""], prod_save: ["products", "tool"], farm_save: ["farms", ""], box_save: ["random_boxes", ""], code_plan_save: ["products", "code"] };
-export async function adminAct(act: string, f: F, visibleForm: Record<string, string>): Promise<string> {
-  const msg = await adminAct0(act, f, visibleForm);
+const CAP_T: Record<string, [string, string, string]> = { cat_save: ["categories", "", "cat"], prod_save: ["products", "tool", "tool"], farm_save: ["farms", "", "farm"], box_save: ["random_boxes", "", "box"], code_plan_save: ["products", "code", "code"] };
+export async function adminAct(act: string, f0: F, visibleForm: Record<string, string>): Promise<string> {
   const ct = CAP_T[act];
-  if (ct && visibleForm && "cap" in visibleForm && !/^(فشل|اسم|الاسم|أدخل)/.test(msg)) {
+  let f = f0;
+  if (ct && act !== "cat_save") {
+    // base price is USDT. If the admin left it empty but typed a price in another currency, derive the base from it.
+    const typed = CURRENCIES.filter((c) => Number(f0("pr_" + c)) > 0);
+    if (!(Number(f0("price")) > 0) && typed.length) {
+      const c = typed.includes("USDT") ? "USDT" : typed[0], rt = await getRates(), v = Number(f0("pr_" + c));
+      const usdt = Math.round((c === "USDT" ? v : v / (rt[c] || 1)) * 1e6) / 1e6;
+      f = (k: string) => (k === "price" ? String(usdt) : f0(k));
+    }
+  }
+  const msg = await adminAct0(act, f, visibleForm);
+  if (ct && visibleForm && !/^(فشل|اسم|الاسم|أدخل|الاسم)/.test(msg) && !/مطلوب/.test(msg)) {
     try {
-      const cap = f("cap").trim().slice(0, 80), id = Number(f("id")), tb = ct[0], kd = ct[1] ? ` AND kind = '${ct[1]}'` : "";
-      if (id > 0) await run(`UPDATE ${tb} SET cap = $1 WHERE id = $2`, [cap, id]);
-      else await run(`UPDATE ${tb} SET cap = $1 WHERE id = (SELECT MAX(id) FROM ${tb} WHERE 1=1${kd})`, [cap]);
-    } catch (e) { console.error("[cap]", e); }
+      const tb = ct[0], kd = ct[1] ? ` AND kind = '${ct[1]}'` : "";
+      let id = Number(f("id"));
+      if (!(id > 0)) id = Number((await first(`SELECT MAX(id) m FROM ${tb} WHERE 1=1${kd}`))?.m ?? 0);
+      if (id > 0) {
+        if ("cap" in visibleForm) await run(`UPDATE ${tb} SET cap = $1 WHERE id = $2`, [f("cap").trim().slice(0, 80), id]);
+        const pv: Record<string, string> = {}; for (const c of CURRENCIES) if (("pr_" + c) in visibleForm) pv[c] = f("pr_" + c);
+        if (Object.keys(pv).length) await setItemPrices(ct[2], id, pv);
+        if (act === "farm_save" && "qty" in visibleForm) {
+          const q = Math.max(0, Math.floor(Number(f("qty"))) || 0), sq = Math.max(0, Math.floor(Number(f("show_qty"))) || 0);
+          await run(`UPDATE farms SET qty = $1, show_qty = $2, sold = CASE WHEN $1 > 0 THEN 0 ELSE 1 END WHERE id = $3`, [q, sq, id]);
+        }
+      }
+    } catch (e) { console.error("[extras]", e); }
   }
   return msg;
 }
@@ -108,7 +127,7 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
       const qtyRaw = f("qty").trim(), qty = qtyRaw === "" ? -1 : Math.max(-1, Math.floor(Number(qtyRaw)) || 0);
       const maxo = Math.max(0, Math.floor(Number(f("max_order"))) || 0), descr = f("descr").trim().slice(0, 500);
       if (!name || !(cat > 0)) return "الاسم والقسم مطلوبان";
-      if (!(price > 0)) return "أدخل سعرًا أكبر من صفر (بالـ USDT)";
+      if (!(price > 0)) return "أدخل سعرًا واحدًا على الأقل (بأي عملة)";
       if (id > 0) { await run(`UPDATE products SET name=$1, category_id=$2, price=$3, qty=$4, active=$5, max_order=$6, need_tag=$7, descr=$8 WHERE id=$9`, [name, cat, price, qty, active, maxo, needTag, descr, id]); if (img) await run(`UPDATE products SET image = $1 WHERE id = $2`, [img, id]); if (f("remove_image") === "1" && !img) await run(`UPDATE products SET image = NULL WHERE id = $1`, [id]); }
       else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at, pack, max_order, kind, descr, need_tag) VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,'tool',$9,$10)`, [cat, name, img || null, price, qty, active, t, maxo, descr, needTag]);
       return "تم حفظ المنتج";
@@ -118,7 +137,7 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
     // ----- farms -----
     case "farm_save": {
       const name = f("name").trim().slice(0, 100), price = Math.max(0, Number(f("price")) || 0), level = Math.max(0, Math.floor(Number(f("level")) || 0)), descr = f("descr").trim().slice(0, 800);
-      if (!name || !(price > 0)) return "اسم المزرعة والسعر (USDT) مطلوبان";
+      if (!name || !(price > 0)) return "اسم المزرعة وسعر واحد على الأقل (بأي عملة) مطلوبان";
       let fid = id;
       if (id > 0) {
         await run(`UPDATE farms SET name=$1, price=$2, level=$3, descr=$4, active=$5 WHERE id=$6`, [name, price, level, descr, bool(f("active")), id]);
@@ -148,7 +167,7 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
     // ----- subscription codes -----
     case "code_plan_save": {
       const name = f("name").trim().slice(0, 100), price = Math.max(0, Number(f("price")) || 0), descr = f("descr").trim().slice(0, 500);
-      if (!name || !(price > 0)) return "الاسم والسعر (USDT) مطلوبان";
+      if (!name || !(price > 0)) return "الاسم وسعر واحد على الأقل (بأي عملة) مطلوبان";
       if (id > 0) { await run(`UPDATE products SET name=$1, price=$2, descr=$3, active=$4 WHERE id=$5 AND kind='code'`, [name, price, descr, bool(f("active")), id]); if (img) await run(`UPDATE products SET image=$1 WHERE id=$2`, [img, id]); }
       else await run(`INSERT INTO products (category_id, name, image, price, qty, active, created_at, pack, max_order, kind, descr) VALUES (0,$1,$2,$3,0,$4,$5,1,10,'code',$6)`, [name, img || null, price, bool(f("active")), t, descr]);
       return "تم حفظ الباقة";
@@ -170,7 +189,7 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
     // ----- random boxes -----
     case "box_save": {
       const name = f("name").trim().slice(0, 100), price = Math.max(0, Number(f("price")) || 0), descr = f("descr").trim().slice(0, 500);
-      if (!name || !(price > 0)) return "الاسم والسعر (USDT) مطلوبان";
+      if (!name || !(price > 0)) return "الاسم وسعر واحد على الأقل (بأي عملة) مطلوبان";
       if (id > 0) { await run(`UPDATE random_boxes SET name=$1, price=$2, descr=$3, active=$4 WHERE id=$5`, [name, price, descr, bool(f("active")), id]); if (img) await run(`UPDATE random_boxes SET image=$1 WHERE id=$2`, [img, id]); }
       else await run(`INSERT INTO random_boxes (name, image, descr, price, active, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [name, img || null, descr, price, bool(f("active")), t]);
       return "تم حفظ الصندوق";
@@ -270,9 +289,19 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
       await audit(run, actor(), "delete_payment_method", "payment_method", id, {});
       return "تم حذف طريقة الدفع";
     }
+    case "cur_add": {
+      const code = f("code").trim().toUpperCase(), nm = f("name").trim().slice(0, 60), ne = f("name_en").trim().slice(0, 60), dec = Math.min(6, Math.max(0, Math.floor(Number(f("dec"))))), rate = Number(f("rate"));
+      if (!/^[A-Z0-9]{2,8}$/.test(code)) return "رمز العملة: حروف إنجليزية/أرقام من 2 إلى 8 (مثل EGP)";
+      if (CURRENCIES.includes(code)) return "هذه العملة موجودة مسبقًا";
+      if (!nm) return "اسم العملة مطلوب";
+      if (!(rate > 0) || !Number.isFinite(rate)) return "أدخل سعر الصرف: كم تساوي 1 USDT بهذه العملة";
+      await addCurrency(code, nm, ne, Number.isFinite(dec) ? dec : 2, rate);
+      await audit(run, actor(), "add_currency", "currency", code, { rate });
+      return "تمت إضافة العملة " + code + " — يمكنك الآن إضافة طريقة دفع بها وتسعير المنتجات بها";
+    }
     case "rate_save": {
       const old = await getRates(), out: string[] = [];
-      for (const c of ["JOD", "IQD"]) {
+      for (const c of CURRENCIES.filter((x) => x !== "USDT")) {
         const v = Number(f("rate_" + c));
         if (!(v > 0) || !Number.isFinite(v)) return "أدخل سعر صرف صحيحًا لكل عملة";
         if (Math.abs(v - (old[c] ?? 0)) > 1e-9) {

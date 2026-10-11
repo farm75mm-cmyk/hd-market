@@ -3,7 +3,7 @@
 // user's wallet in JOD / IQD / USDT through the exchange rates set by the admin.
 import {
   run, first, count, withTx, isSqlite, serial, num, nowS, rnd, r4, txid, env, Fail, ok, json, Row, Q, isDup,
-  CURRENCIES, getRates, fromUsdt, audit, getSet, putSet, balancesOf, authUser, pushTo, TONES,
+  CURRENCIES, DEC, CNAMES, getItemPrices, getRates, fromUsdt, audit, getSet, putSet, balancesOf, authUser, pushTo, TONES,
 } from "./core";
 import food from "./food.json";
 
@@ -37,6 +37,8 @@ await run(`CREATE TABLE IF NOT EXISTS random_prizes (id ${serial}, box_id BIGINT
 await run(`CREATE TABLE IF NOT EXISTS opt_items (id INT PRIMARY KEY, name TEXT NOT NULL, level INT NOT NULL DEFAULT 0, building TEXT NOT NULL DEFAULT '', price DOUBLE PRECISION, active INT NOT NULL DEFAULT 1)`);
 await run(`CREATE TABLE IF NOT EXISTS announcements (id ${serial}, title TEXT NOT NULL, body TEXT NOT NULL, image TEXT, pinned INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 for (const tb of ["categories", "products", "farms", "random_boxes"]) await alter(`ALTER TABLE ${tb} ADD COLUMN cap TEXT NOT NULL DEFAULT ''`);
+await alter(`ALTER TABLE farms ADD COLUMN qty INT NOT NULL DEFAULT 1`);
+await alter(`ALTER TABLE farms ADD COLUMN show_qty INT NOT NULL DEFAULT 0`);
 await run(`CREATE TABLE IF NOT EXISTS hd_groups (id ${serial}, name TEXT NOT NULL, url TEXT NOT NULL, descr TEXT, image TEXT, sort INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 
 // ---------- seed ----------
@@ -102,11 +104,16 @@ export async function pushAll(title: string, body: string, screen = "home") {
 
 // ---------- ordering ----------
 export const optPrice = async () => Number(await getSet("opt_price", "0.001625")) || 0.001625;
-type OrderIn = { kind: string; name: string; qty: number; usdt: number; lines: any[]; refId?: number; status?: string; delivery?: string; idem?: string | null };
+type OrderIn = { over?: number | null; kind: string; name: string; qty: number; usdt: number; lines: any[]; refId?: number; status?: string; delivery?: string; idem?: string | null };
+/** amount of one line in `cur`: the admin's own price for that currency when typed, otherwise converted from USDT. */
+async function lineAmt(q: Q, kind: string, id: number, cur: string, unitUsdt: number, n: number, rt: Record<string, number>) {
+  const ov = (await getItemPrices(kind, [id], q)).get(id)?.[cur];
+  return ov != null && ov > 0 ? { amt: ov * n, ov: true } : { amt: fromUsdt(unitUsdt * n, cur, rt), ov: false };
+}
 /** Debits the wallet and writes the order + ledger row. Must run inside withTx. */
 async function placeOrder(q: Q, u: Row, cur: string, o: OrderIn) {
   const rt = await getRates(q);
-  const total = fromUsdt(o.usdt, cur, rt);
+  const total = o.over != null && o.over > 0 ? o.over : fromUsdt(o.usdt, cur, rt);
   if (!(total > 0) || !Number.isFinite(total)) throw new Fail("invalid");
   const w = await q(`UPDATE user_wallets SET amount = amount - $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 AND amount >= $1 RETURNING amount`, [total, nowS(), u.id, cur]);
   if (!w.length) throw new Fail("insufficient_balance", 402, { need: total, currency: cur });
@@ -169,13 +176,15 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       },
       farm_img: fimg ? imgUrl("f", fimg) : null,
       rates: await getRates(),
+      currencies: CURRENCIES.map((c) => ({ code: c, dec: DEC[c], name: CNAMES[c]?.[0] ?? null, name_en: CNAMES[c]?.[1] ?? null })),
       layout: await homeLayout(),
     });
   },
   async catalog() {
     const categories = await run(`SELECT id, name, name_en, price, descr, cap, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
     const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, need_tag, descr, cap, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
-    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), cap: c.cap ?? "", price: c.price == null ? null : num(c.price), descr: c.descr ?? "" })), products: products.map(prodOut) });
+    const pc = await getItemPrices("cat", categories.map((c) => num(c.id))), pp = await getItemPrices("tool", products.map((p) => num(p.id)));
+    return ok({ categories: categories.map((c) => ({ prices: pc.get(num(c.id)) ?? {}, id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), cap: c.cap ?? "", price: c.price == null ? null : num(c.price), descr: c.descr ?? "" })), products: products.map((p) => ({ ...prodOut(p), prices: pp.get(num(p.id)) ?? {} })) });
   },
   async opt_items() {
     const price = await optPrice();
@@ -183,19 +192,21 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     return ok({ price, items: rows.map((r) => ({ id: num(r.id), n: r.name, l: num(r.level), b: r.building, p: r.price == null ? price : num(r.price), img: `${WEB_ORIGIN}/img/food/f${String(num(r.id)).padStart(3, "0")}.webp` })) });
   },
   async farms() {
-    const rows = await run(`SELECT id, name, descr, cap, level, price, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
-    return ok({ farms: rows.map((f) => ({ id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
+    const rows = await run(`SELECT id, name, descr, cap, level, price, qty, show_qty, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
+    const fp = await getItemPrices("farm", rows.map((f) => num(f.id)));
+    return ok({ farms: rows.map((f) => ({ prices: fp.get(num(f.id)) ?? {}, avail: num(f.show_qty) > 0 ? num(f.show_qty) : num(f.qty), id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
   },
   async codes() {
     const rows = await run(`SELECT p.id, p.name, p.descr, p.cap, p.price, ${IMG("image", "p.")}, (SELECT COUNT(*) FROM sub_codes s WHERE s.product_id = p.id AND s.status = 'available') stock FROM products p WHERE p.kind = 'code' AND p.active = 1 ORDER BY p.id`);
-    return ok({ codes: rows.map((r) => ({ id: num(r.id), name: r.name, descr: r.descr ?? "", price: num(r.price), cap: r.cap ?? "", image: imgUrl("p", r), stock: num(r.stock) })) });
+    const cp = await getItemPrices("code", rows.map((r) => num(r.id)));
+    return ok({ codes: rows.map((r) => ({ prices: cp.get(num(r.id)) ?? {}, id: num(r.id), name: r.name, descr: r.descr ?? "", price: num(r.price), cap: r.cap ?? "", image: imgUrl("p", r), stock: num(r.stock) })) });
   },
   async boxes() {
     const rows = await run(`SELECT id, name, descr, cap, price, ${IMG()} FROM random_boxes WHERE active = 1 ORDER BY id`);
-    const out = [];
+    const out: any[] = []; const bp = await getItemPrices("box", rows.map((r) => num(r.id)));
     for (const b of rows) {
       const pr = await run(`SELECT label FROM random_prizes WHERE box_id = $1 AND stock <> 0 ORDER BY id`, [b.id]);
-      out.push({ id: num(b.id), name: b.name, descr: b.descr ?? "", price: num(b.price), cap: b.cap ?? "", image: imgUrl("b", b), prizes: pr.map((p) => p.label) });
+      out.push({ prices: bp.get(num(b.id)) ?? {}, id: num(b.id), name: b.name, descr: b.descr ?? "", price: num(b.price), cap: b.cap ?? "", image: imgUrl("b", b), prizes: pr.map((p) => p.label) });
     }
     return ok({ boxes: out });
   },
@@ -212,7 +223,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     for (const l of raw) { const id = Math.floor(Number(l?.id)), q = Math.floor(Number(l?.q)); if (id >= 0 && q >= 1 && q <= 9999) want.set(id, (want.get(id) ?? 0) + q); }
     if (!want.size) throw new Fail("invalid");
     return finish(u.id, idem, () => withTx(async (q) => {
-      const lines: any[] = []; let usdt = 0, qty = 0, usedTag = false;
+      const lines: any[] = []; let usdt = 0, qty = 0, usedTag = false, ovTot = 0, anyOv = false; const rt0 = await getRates(q);
       if (kind === "opt") {
         const dp = await optPrice();
         for (const [id, n] of want) {
@@ -235,12 +246,12 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
             usedTag = true;
           } else if (num(p.max_order) > 0 && n > num(p.max_order)) throw new Fail("limit_exceeded", 400, { max: num(p.max_order), id });
           if (!(await q(`UPDATE products SET qty = qty - $1 WHERE id = $2 AND (qty < 0 OR qty >= $1) RETURNING id`, [n, id])).length) throw new Fail("out_of_stock", 409, { id });
-          lines.push({ id, n: p.name, q: n, p: num(p.price) }); usdt += num(p.price) * n; qty += n;
+          lines.push({ id, n: p.name, q: n, p: num(p.price) }); usdt += num(p.price) * n; qty += n; { const la = await lineAmt(q, "tool", id, cur, num(p.price), n, rt0); ovTot += la.amt; anyOv = anyOv || la.ov; }
         }
       }
       usdt = Math.round(usdt * 1e8) / 1e8;
       const name = lines.length === 1 ? `${lines[0].n} × ${lines[0].q}` : (kind === "opt" ? "منتجات اختياري" : "طلب أدوات") + ` (${qty})`;
-      const ro = await placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem });
+      const ro = await placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem, over: kind !== "opt" && anyOv ? ovTot : null });
       if (usedTag) await q(`UPDATE orders SET farm_tag = $1, farm_cap = $2 WHERE id = $3`, [tagOk, fcap, ro.id]);
       return ro;
     }));
@@ -250,9 +261,10 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     const cur = curOf(b), idem = idemOf(b);
     const dup = await dupOrder(u.id, idem); if (dup) return dup;
     return finish(u.id, idem, () => withTx(async (q) => {
-      const f = (await q(`UPDATE farms SET sold = 1, buyer_id = $1, sold_at = $2 WHERE id = $3 AND sold = 0 AND active = 1 RETURNING *`, [u.id, nowS(), Number(b.id)]))[0];
+      const f = (await q(`UPDATE farms SET qty = qty - 1, sold = CASE WHEN qty <= 1 THEN 1 ELSE 0 END, buyer_id = $1, sold_at = $2 WHERE id = $3 AND sold = 0 AND active = 1 AND qty >= 1 RETURNING *`, [u.id, nowS(), Number(b.id)]))[0];
       if (!f) throw new Fail("out_of_stock", 409);
-      const r = await placeOrder(q, u, cur, { kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem });
+      const fa = await lineAmt(q, "farm", num(f.id), cur, num(f.price), 1, await getRates(q));
+      const r = await placeOrder(q, u, cur, { over: fa.ov ? fa.amt : null, kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem });
       await q(`UPDATE farms SET order_id = $1 WHERE id = $2`, [r.id, f.id]);
       return r;
     }));
@@ -264,7 +276,8 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     return finish(u.id, idem, () => withTx(async (q) => {
       const p = (await q(`SELECT * FROM products WHERE id = $1 AND kind = 'code' AND active = 1`, [Number(b.id)]))[0];
       if (!p) throw new Fail("not_found", 404);
-      const r = await placeOrder(q, u, cur, { kind: "code", name: `${p.name} × ${n}`, qty: n, usdt: num(p.price) * n, lines: [{ id: num(p.id), n: p.name, q: n, p: num(p.price) }], refId: num(p.id), status: "done", idem, delivery: "—" });
+      const ca = await lineAmt(q, "code", num(p.id), cur, num(p.price), n, await getRates(q));
+      const r = await placeOrder(q, u, cur, { over: ca.ov ? ca.amt : null, kind: "code", name: `${p.name} × ${n}`, qty: n, usdt: num(p.price) * n, lines: [{ id: num(p.id), n: p.name, q: n, p: num(p.price) }], refId: num(p.id), status: "done", idem, delivery: "—" });
       const codes: string[] = [];
       for (let i = 0; i < n; i++) {
         let got: Row | undefined;
@@ -293,7 +306,8 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       let pick = (crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * total, prize = prizes[prizes.length - 1];
       for (const p of prizes) { pick -= num(p.weight); if (pick < 0) { prize = p; break; } }
       if (num(prize.stock) > 0 && !(await q(`UPDATE random_prizes SET stock = stock - 1 WHERE id = $1 AND stock > 0 RETURNING id`, [prize.id])).length) throw new Fail("out_of_stock", 409);
-      return placeOrder(q, u, cur, { kind: "random", name: box.name, qty: 1, usdt: num(box.price), lines: [{ id: num(box.id), n: box.name, q: 1, p: num(box.price), prize: prize.label }], refId: num(box.id), idem });
+      const ba = await lineAmt(q, "box", num(box.id), cur, num(box.price), 1, await getRates(q));
+      return placeOrder(q, u, cur, { over: ba.ov ? ba.amt : null, kind: "random", name: box.name, qty: 1, usdt: num(box.price), lines: [{ id: num(box.id), n: box.name, q: 1, p: num(box.price), prize: prize.label }], refId: num(box.id), idem });
     }));
   },
   async orders(b) {
@@ -324,7 +338,7 @@ export async function cancelOrder(id: number, actor: string): Promise<string> {
       const w = await q(`UPDATE user_wallets SET amount = amount + $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 RETURNING amount`, [tot, t, o.user_id, cur]);
       const a = num(w[0].amount);
       await q(`INSERT INTO transactions (txn_id, ref_key, user_id, type, currency, amount, balance_before, balance_after, note, actor, created_at) VALUES ($1,$2,$3,'refund',$4,$5,$6,$7,$8,$9,$10)`, [txid("TX"), "ref:" + id, o.user_id, cur, tot, r4(a - tot), a, `إلغاء الطلب #${id}`, actor, t]);
-      if (o.kind === "farm") await q(`UPDATE farms SET sold = 0, buyer_id = 0, order_id = 0, sold_at = 0 WHERE id = $1`, [o.ref_id]);
+      if (o.kind === "farm") await q(`UPDATE farms SET qty = qty + 1, sold = 0, buyer_id = 0, order_id = 0, sold_at = 0 WHERE id = $1`, [o.ref_id]);
       else if (o.lines) { try { if (o.kind === "tool") for (const l of JSON.parse(o.lines)) await q(`UPDATE products SET qty = qty + $1 WHERE id = $2 AND qty >= 0`, [num(l.q), l.id]); } catch {} }
       else if (num(o.product_id) > 0) await q(`UPDATE products SET qty = qty + $1 WHERE id = $2 AND qty >= 0`, [num(o.qty), o.product_id]);
       await audit(q, actor, "cancel_order_refund", "order", id, { amount: tot, currency: cur, kind: o.kind });
