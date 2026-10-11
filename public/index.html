@@ -12,9 +12,9 @@ html.sp-on,html.sp-on body{overflow:hidden}
 #hdsplash{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(14px,3.2vh,26px);padding:24px max(20px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));background:#0A0A0A radial-gradient(120% 70% at 50% 38%,rgba(232,169,0,.16),rgba(10,10,10,0) 62%);color:#fff;font-family:Cairo,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:center;transition:opacity .38s ease,visibility .38s;min-height:100vh;min-height:100dvh}
 #hdsplash.out{opacity:0;visibility:hidden}
 #hdsplash .spi{width:clamp(88px,27vw,132px);height:clamp(88px,27vw,132px);border-radius:26%;object-fit:cover;box-shadow:0 14px 40px rgba(232,169,0,.25),0 2px 10px rgba(0,0,0,.5);animation:spin .7s cubic-bezier(.2,.8,.2,1) both}
-#hdsplash .spt{font-size:clamp(18px,5.4vw,25px);font-weight:800;line-height:1.5;max-width:86vw;animation:spup .6s .22s cubic-bezier(.2,.8,.2,1) both}
-#hdsplash .spt b{color:#E8A900;font-weight:900}
-#hdsplash .spd{display:flex;gap:7px;height:8px;animation:spup .5s .5s both}
+#hdsplash .spn{font-size:clamp(30px,9.5vw,46px);font-weight:900;line-height:1.1;letter-spacing:.2px;color:#fff;margin-top:calc(-1 * clamp(2px,1vh,8px));animation:spup .55s .15s cubic-bezier(.2,.8,.2,1) both}
+#hdsplash .spt{font-size:clamp(17px,4.8vw,22px);font-weight:700;line-height:1.5;max-width:86vw;color:#E8A900;animation:spup .6s .3s cubic-bezier(.2,.8,.2,1) both}
+#hdsplash .spd{display:flex;gap:7px;height:8px;margin-top:4px;animation:spup .5s .5s both}
 #hdsplash .spd i{width:7px;height:7px;border-radius:50%;background:#E8A900;opacity:.35;animation:spb 1s infinite ease-in-out}
 #hdsplash .spd i:nth-child(2){animation-delay:.16s}#hdsplash .spd i:nth-child(3){animation-delay:.32s}
 #hdsplash .spe{display:none;flex-direction:column;align-items:center;gap:12px}
@@ -168,9 +168,9 @@ nav button.on span{filter:none}
 .av .pfo{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;z-index:2}.av .cm{pointer-events:none;z-index:3}</style>
 </head>
 <body>
-<div id="hdsplash" role="status" aria-live="polite"><img class="spi" src="img/icon.png" width="132" height="132" alt="" decoding="async" fetchpriority="high"><div class="spt" id="spt">أهلاً بعودتك إلى <b>HD Market</b></div><div class="spd" aria-hidden="true"><i></i><i></i><i></i></div><div class="spe"><p id="spm">تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مجددًا.</p><button type="button" id="spr">إعادة المحاولة</button></div></div>
+<div id="hdsplash" role="status" aria-live="polite"><img class="spi" src="img/icon.png" width="132" height="132" alt="" decoding="async" fetchpriority="high"><div class="spn" dir="ltr">HD Market</div><div class="spt" id="spt">أهلاً بعودتك</div><div class="spd" aria-hidden="true"><i></i><i></i><i></i></div><div class="spe"><p id="spm">تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مجددًا.</p><button type="button" id="spr">إعادة المحاولة</button></div></div>
 <script>(function(){document.documentElement.classList.add("sp-on");var L="ar";try{L=localStorage.getItem("hd-lang")||"ar"}catch(e){}
-var T={ar:["أهلاً بعودتك إلى <b>HD Market</b>","تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مجددًا.","إعادة المحاولة"],en:["Welcome back to <b>HD Market</b>","Couldn't reach the server. Check your connection and try again.","Try again"],vi:["Chào mừng bạn quay lại <b>HD Market</b>","Không thể kết nối máy chủ. Kiểm tra mạng rồi thử lại.","Thử lại"],zh:["欢迎回到 <b>HD Market</b>","无法连接服务器。请检查网络后重试。","重试"]}[L]||null;
+var T={ar:["أهلاً بعودتك","تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مجددًا.","إعادة المحاولة"],en:["Welcome back","Couldn't reach the server. Check your connection and try again.","Try again"],vi:["Chào mừng bạn quay lại","Không thể kết nối máy chủ. Kiểm tra mạng rồi thử lại.","Thử lại"],zh:["欢迎回来","无法连接服务器。请检查网络后重试。","重试"]}[L]||null;
 if(T){document.getElementById("spt").innerHTML=T[0];document.getElementById("spm").textContent=T[1];document.getElementById("spr").textContent=T[2]}
 document.getElementById("spr").onclick=function(){location.reload()}})()</script>
 <svg width="0" height="0" style="position:absolute"><defs>
@@ -618,6 +618,6 @@ document.addEventListener("click",e=>{
 apply();
 if(TOKEN)api("me",{token:TOKEN}).then(r=>{if(r.ok){ME=r;enter()}else if(r.error=="unauthorized")setTok(null)});
 </script>
-<script src="hd-live.js?v=28"></script>
+<script src="hd-live.js?v=29"></script>
 </body>
 </html>
