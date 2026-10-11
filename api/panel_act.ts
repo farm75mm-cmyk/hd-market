@@ -22,7 +22,20 @@ async function orderNote(id: number, title: string, body: string, tEn: string, b
   await pushTo(Number(o.user_id), "HD Market", title, "orders");
 }
 
+const CAP_T: Record<string, [string, string]> = { cat_save: ["categories", ""], prod_save: ["products", "tool"], farm_save: ["farms", ""], box_save: ["random_boxes", ""], code_plan_save: ["products", "code"] };
 export async function adminAct(act: string, f: F, visibleForm: Record<string, string>): Promise<string> {
+  const msg = await adminAct0(act, f, visibleForm);
+  const ct = CAP_T[act];
+  if (ct && visibleForm && "cap" in visibleForm && !/^(فشل|اسم|الاسم|أدخل)/.test(msg)) {
+    try {
+      const cap = f("cap").trim().slice(0, 80), id = Number(f("id")), tb = ct[0], kd = ct[1] ? ` AND kind = '${ct[1]}'` : "";
+      if (id > 0) await run(`UPDATE ${tb} SET cap = $1 WHERE id = $2`, [cap, id]);
+      else await run(`UPDATE ${tb} SET cap = $1 WHERE id = (SELECT MAX(id) FROM ${tb} WHERE 1=1${kd})`, [cap]);
+    } catch (e) { console.error("[cap]", e); }
+  }
+  return msg;
+}
+async function adminAct0(act: string, f: F, visibleForm: Record<string, string>): Promise<string> {
   const id = Number(f("id")), t = nowS();
   if (act.startsWith("admin_") && !isOwner()) return "هذا الإجراء للمالك فقط";
   const img = f("image");

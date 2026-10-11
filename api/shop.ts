@@ -36,6 +36,7 @@ await run(`CREATE TABLE IF NOT EXISTS random_boxes (id ${serial}, name TEXT NOT 
 await run(`CREATE TABLE IF NOT EXISTS random_prizes (id ${serial}, box_id BIGINT NOT NULL, label TEXT NOT NULL, weight INT NOT NULL DEFAULT 1, stock INT NOT NULL DEFAULT -1, created_at BIGINT NOT NULL)`);
 await run(`CREATE TABLE IF NOT EXISTS opt_items (id INT PRIMARY KEY, name TEXT NOT NULL, level INT NOT NULL DEFAULT 0, building TEXT NOT NULL DEFAULT '', price DOUBLE PRECISION, active INT NOT NULL DEFAULT 1)`);
 await run(`CREATE TABLE IF NOT EXISTS announcements (id ${serial}, title TEXT NOT NULL, body TEXT NOT NULL, image TEXT, pinned INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
+for (const tb of ["categories", "products", "farms", "random_boxes"]) await alter(`ALTER TABLE ${tb} ADD COLUMN cap TEXT NOT NULL DEFAULT ''`);
 await run(`CREATE TABLE IF NOT EXISTS hd_groups (id ${serial}, name TEXT NOT NULL, url TEXT NOT NULL, descr TEXT, image TEXT, sort INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 
 // ---------- seed ----------
@@ -139,7 +140,7 @@ async function finish(uid: any, idem: string | null, fn: () => Promise<{ id: num
     throw e;
   }
 }
-const prodOut = (p: Row) => ({ need_tag: num(p.need_tag), id: num(p.id), category_id: num(p.category_id), name: p.name, image: imgUrl("p", p), price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order), descr: p.descr ?? "" });
+const prodOut = (p: Row) => ({ need_tag: num(p.need_tag), id: num(p.id), category_id: num(p.category_id), name: p.name, image: imgUrl("p", p), price: num(p.price), qty: num(p.qty), pack: num(p.pack) || 1, max_order: num(p.max_order), descr: p.descr ?? "", cap: p.cap ?? "" });
 
 const jlist = (v: string): string[] => { try { const a = JSON.parse(v); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
 export const homeLayout = async () => ({ order: jlist(await getSet("home_order", "[]")), hide: jlist(await getSet("home_hide", "[]")) });
@@ -172,9 +173,9 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     });
   },
   async catalog() {
-    const categories = await run(`SELECT id, name, name_en, price, descr, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
-    const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, need_tag, descr, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
-    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), price: c.price == null ? null : num(c.price), descr: c.descr ?? "" })), products: products.map(prodOut) });
+    const categories = await run(`SELECT id, name, name_en, price, descr, cap, ${IMG()} FROM categories WHERE active = 1 ORDER BY sort, id`);
+    const products = await run(`SELECT id, category_id, name, price, qty, pack, max_order, need_tag, descr, cap, ${IMG()} FROM products WHERE active = 1 AND kind = 'tool' ORDER BY id`);
+    return ok({ categories: categories.map((c) => ({ id: num(c.id), name: c.name, name_en: c.name_en ?? "", image: imgUrl("c", c), cap: c.cap ?? "", price: c.price == null ? null : num(c.price), descr: c.descr ?? "" })), products: products.map(prodOut) });
   },
   async opt_items() {
     const price = await optPrice();
@@ -182,19 +183,19 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     return ok({ price, items: rows.map((r) => ({ id: num(r.id), n: r.name, l: num(r.level), b: r.building, p: r.price == null ? price : num(r.price), img: `${WEB_ORIGIN}/img/food/f${String(num(r.id)).padStart(3, "0")}.webp` })) });
   },
   async farms() {
-    const rows = await run(`SELECT id, name, descr, level, price, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
-    return ok({ farms: rows.map((f) => ({ id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), image: imgUrl("f", f) })) });
+    const rows = await run(`SELECT id, name, descr, cap, level, price, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
+    return ok({ farms: rows.map((f) => ({ id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
   },
   async codes() {
-    const rows = await run(`SELECT p.id, p.name, p.descr, p.price, ${IMG("image", "p.")}, (SELECT COUNT(*) FROM sub_codes s WHERE s.product_id = p.id AND s.status = 'available') stock FROM products p WHERE p.kind = 'code' AND p.active = 1 ORDER BY p.id`);
-    return ok({ codes: rows.map((r) => ({ id: num(r.id), name: r.name, descr: r.descr ?? "", price: num(r.price), image: imgUrl("p", r), stock: num(r.stock) })) });
+    const rows = await run(`SELECT p.id, p.name, p.descr, p.cap, p.price, ${IMG("image", "p.")}, (SELECT COUNT(*) FROM sub_codes s WHERE s.product_id = p.id AND s.status = 'available') stock FROM products p WHERE p.kind = 'code' AND p.active = 1 ORDER BY p.id`);
+    return ok({ codes: rows.map((r) => ({ id: num(r.id), name: r.name, descr: r.descr ?? "", price: num(r.price), cap: r.cap ?? "", image: imgUrl("p", r), stock: num(r.stock) })) });
   },
   async boxes() {
-    const rows = await run(`SELECT id, name, descr, price, ${IMG()} FROM random_boxes WHERE active = 1 ORDER BY id`);
+    const rows = await run(`SELECT id, name, descr, cap, price, ${IMG()} FROM random_boxes WHERE active = 1 ORDER BY id`);
     const out = [];
     for (const b of rows) {
       const pr = await run(`SELECT label FROM random_prizes WHERE box_id = $1 AND stock <> 0 ORDER BY id`, [b.id]);
-      out.push({ id: num(b.id), name: b.name, descr: b.descr ?? "", price: num(b.price), image: imgUrl("b", b), prizes: pr.map((p) => p.label) });
+      out.push({ id: num(b.id), name: b.name, descr: b.descr ?? "", price: num(b.price), cap: b.cap ?? "", image: imgUrl("b", b), prizes: pr.map((p) => p.label) });
     }
     return ok({ boxes: out });
   },
