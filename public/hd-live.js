@@ -163,6 +163,11 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     HD.rates = r.rates; HD.counts = r.counts; HD.farmImg = r.farm_img || null; HD.grp = r.groups; HD.anns = r.announcements; HD.layout = r.layout || { order: [], hide: [] }; LSs("layout", HD.layout);
     if (typeof evLoad === "function" && Date.now() - (HD.evAt || 0) > 20000) evLoad();
     if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid();
+    HD.tImg = HD.tImg || LSg("timg", {});
+    [["farms", "farms", "farms"], ["codes", "codes", "codes"], ["boxes", "boxes", "boxes"]].forEach(([k, act, key]) => {
+      if (!(r.counts && r.counts[k])) return;
+      api(act, {}).then((f) => { if (f && f.ok) { const w = (f[key] || []).find((x) => x.image); const u = w ? w.image : null; if (u !== HD.tImg[k]) { HD.tImg[k] = u; LSs("timg", HD.tImg); if (!$("app").hidden && tab == 0 && !axe && !opt && !HD.page) drawGrid(); } } }).catch(() => {});
+    });
   }
   async function loadCat() {
     const r = await api("catalog", {});
@@ -181,17 +186,17 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (opt && !ready) { drawBar(); const l = $("ol"); if (l && document.activeElement && !document.activeElement.classList.contains("qn")) drawOl(); }
   }
   const tile = (attr, emoji, name, sub, tint) => `<div class="cc" style="--t:${tint}" ${attr}><div class="pic">${emoji}</div><h3>${name}</h3><small>${sub}</small><span class="go2"></span></div>`;
-  HD.layout = LSg("layout", { order: [], hide: [] });
+  HD.layout = LSg("layout", { order: [], hide: [] }); HD.tImg = LSg("timg", {});
   HD.favs = new Set(LSg("favs", []));
   HD.chip = "all";
   const TINTS = ["#E7F6EA", "#E6EEFC", "#FDF0E0", "#F6E8F7", "#FCE8EE"];
   function homeItems() {
     const s = S[L], c = HD.counts || {}, out = [];
-    if (c.farms) out.push({ k: "farms", n: xt("farms"), img: HD.farmImg, e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
+    if (c.farms) out.push({ k: "farms", n: xt("farms"), img: (HD.tImg || {}).farms || HD.farmImg, e: "🧑‍🌾", sub: `${c.farms} ${xt("avail")}`, attr: 'data-x="farms"' });
     for (const x of HD.cats || []) out.push({ k: "c" + x.id, n: x.name, img: x.image, e: "🏪", sub: x.price != null ? `${xt("price")}: <b>${mon(x.price)}</b>` : `${HD.prods.filter((p) => p.category_id == x.id).length} ${xt("items")}`, attr: `data-x="cat:${x.id}"`, hay: HD.prods.filter((p) => p.category_id == x.id).map((p) => p.name).join(" ") });
     if (c.opt) out.push({ k: "opt", n: s.opt, mos: 1, e: "🍽️", sub: s.cnt(OPT.length), attr: 'data-p="1"', hay: OPT.map((o) => o.n).join(" ") });
-    if (c.codes) out.push({ k: "codes", n: xt("codes"), e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
-    if (c.boxes) out.push({ k: "boxes", n: xt("boxes"), e: "🎁", sub: `${c.boxes} ${xt("bx")}`, attr: 'data-x="boxes"' });
+    if (c.codes) out.push({ k: "codes", n: xt("codes"), img: (HD.tImg || {}).codes, e: "🔑", sub: `${c.codes} ${xt("types")}`, attr: 'data-x="codes"' });
+    if (c.boxes) out.push({ k: "boxes", n: xt("boxes"), img: (HD.tImg || {}).boxes, e: "🎁", sub: `${c.boxes} ${xt("bx")}`, attr: 'data-x="boxes"' });
     out.push({ k: "events", n: evT(), e: "🌾", sub: (() => { const a = HD.ev ? evList().filter((x) => x.st === "running").length : 0; return a ? `${a} ${Z("جارٍ الآن", "running", "đang chạy", "进行中")}` : Z("الشاحنة · السفينة · الدربي", "Truck · Boat · Derby", "Xe tải · Thuyền · Derby", "卡车 · 船 · 德比"); })(), attr: 'data-x="events"' });
     if (HD.grp && HD.grp.length) out.push({ k: "groups", n: xt("groups"), e: "💬", sub: `${HD.grp.length}`, attr: 'data-x="groups"' });
     const L2 = HD.layout || {}, hid = L2.hide || [], ord = L2.order || [];
