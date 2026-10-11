@@ -109,6 +109,15 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   };
   const xt = (k) => { const v = U[k]; return v ? Z(...v) : k; };
   const toneName = (t) => Z(...U.tones[t]);
+  /* login confirmation: one light vibration + one short chime, only after a successful login */
+  let loginFxAt = 0, loginAu = null;
+  window.hdLoginFx = () => {
+    const n = Date.now(); if (n - loginFxAt < 4000) return; loginFxAt = n;
+    try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {}
+    if (HD.notif === false || HD.tone === "silent") return;
+    try { const a = loginAu || new Audio("/sounds/hd_login.wav"); a.volume = 0.6; a.currentTime = 0; a.play().catch(() => {}); } catch (e) {}
+  };
+  setTimeout(() => { try { loginAu = new Audio("/sounds/hd_login.wav"); loginAu.preload = "auto"; loginAu.load(); } catch (e) {} }, 2500);
   const playTone = (t) => { if (!t || t === "silent") return; try { new Audio(`/sounds/hd_${t}.wav`).play().catch(() => {}); } catch (e) {} };
 
   /* ---------- icons ---------- */

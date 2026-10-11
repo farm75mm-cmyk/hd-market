@@ -338,7 +338,7 @@ $("go").addEventListener("click",()=>{
         if(er=="banned")return show(fx.ban,false,["u"]);
         return show(er=="network"?fx.net:fx.srv,false,[]);
       }
-      setTok(r.token);ME=r;
+      setTok(r.token);ME=r;try{window.hdLoginFx&&window.hdLoginFx()}catch(_){}
       show(m.ok,true);
       setTimeout(()=>{enter();["u","e","p"].forEach(id=>$(id).value="");clr()},700);
     }finally{btn.disabled=false}
@@ -618,6 +618,6 @@ document.addEventListener("click",e=>{
 apply();
 if(TOKEN)api("me",{token:TOKEN}).then(r=>{if(r.ok){ME=r;enter()}else if(r.error=="unauthorized")setTok(null)});
 </script>
-<script src="hd-live.js?v=29"></script>
+<script src="hd-live.js?v=30"></script>
 </body>
 </html>
