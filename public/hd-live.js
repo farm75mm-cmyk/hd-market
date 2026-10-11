@@ -703,18 +703,25 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const bell = document.querySelector('[data-h="b"]'); if (bell && HD.unread) bell.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.unread > 99 ? "99+" : HD.unread}</span>`);
     const sb = document.querySelector('#nav [data-n="4"]'); if (sb && HD.sup) sb.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.sup}</span>`);
   }
-  async function pollNotifs() {
-    if (!TOKEN || $("app").hidden) return;
+  let pollBusy = false;
+  async function pollNotifs(withSup = true) {
+    if (!TOKEN || $("app").hidden || pollBusy) return;
+    pollBusy = true;
+    try { await pollNotifs0(withSup); } finally { pollBusy = false; }
+  }
+  async function pollNotifs0(withSup) {
     const r = await call("notif_poll", {});
     if (r.ok) {
       checkForce(r.fu);
+      const prevU = HD.unread || 0;
       HD.unread = r.unread;
+      if (r.unread > prevU && HD.page == "alerts" && $("xpg")) drawAlertsPage();
       if (r.last_id && r.last_id > HD.lastN) {
         if (HD.lastN && HD.notif) { toast(L == "ar" ? r.title : r.title_en || r.title); playTone(HD.tone); }
         HD.lastN = r.last_id; LSs("lastn", r.last_id);
       }
     }
-    const q = await call("support_poll", {});
+    const q = withSup ? await call("support_poll", {}) : { ok: false };
     if (q.ok) {
       HD.sup = (tab == 3 || tab == 4) && !HD.page ? 0 : q.unread;
       if (q.last_id && q.last_id > HD.lastS) {
@@ -940,7 +947,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     if (!TOKEN || $("app").hidden) return;
     if ((tab == 3 || tab == 4) && !axe && !opt && !HD.page) loadChat(false);
     if (tab == 5 && HD.page == "settings" && $("xlist")) loadChat(false);
-    if (HD.tick % 3 == 0) pollNotifs();
+    pollNotifs(HD.tick % 3 == 0);
     if (HD.tick % 4 == 0) {
       if (tab == 0 && !axe && !opt && !HD.page) { loadCat(); loadHome(); }
       else if (tab == 1) loadOrders();
@@ -953,6 +960,8 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   loadCat();
   loadHome();
   setTimeout(loadOpt, 1500);
+  const resumePoll = () => { if (!document.hidden) pollNotifs(); };
+  document.addEventListener("visibilitychange", resumePoll); window.addEventListener("focus", resumePoll); window.addEventListener("online", resumePoll);
   /* ---------- splash controller: hides once config (and the saved session, if any) is resolved; never gets stuck ---------- */
   (() => {
     const sp = $("hdsplash"); if (!sp) return;

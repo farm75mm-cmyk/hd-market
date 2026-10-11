@@ -239,7 +239,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
   },
   async notif_poll(b) {
     const u = await authUser(b);
-    await expireStale();
+    if (Date.now() - lastExpire > 30000) { lastExpire = Date.now(); await expireStale(); }
     const r = await first(`SELECT COUNT(*) c, MAX(id) m FROM notifications WHERE user_id = $1 AND is_read = 0`, [u.id]);
     const last = r && num(r.m) > 0 ? await first(`SELECT title, body, title_en, body_en FROM notifications WHERE id = $1`, [r.m]) : undefined;
     return ok({ fu: await getSet("force_update", "0"), unread: num(r?.c), last_id: num(r?.m), title: last?.title ?? "", body: last?.body ?? "", title_en: last?.title_en ?? "", body_en: last?.body_en ?? "" });
@@ -288,6 +288,7 @@ Bun.serve({
   maxRequestBodySize: 2 * 1024 * 1024,
   async fetch(req) { return gz(req, await handleReq(req)); },
 });
+let lastExpire = 0;
 const gz = async (req: Request, res: Response): Promise<Response> => {
   try {
     const ct = res.headers.get("Content-Type") ?? "";
