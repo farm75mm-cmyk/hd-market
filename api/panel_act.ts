@@ -26,7 +26,11 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
   const id = Number(f("id")), t = nowS();
   if (act.startsWith("admin_") && !isOwner()) return "هذا الإجراء للمالك فقط";
   const img = f("image");
-  if (img && !okImg(img)) return "الصورة غير صالحة (jpeg/png/webp وحجم أصغر).";
+  if (img && !okImg(img)) {
+    const why = img.length > 450000 ? "حجم الصورة كبير جدًا" : "صيغة الصورة غير مدعومة (استخدم JPG أو PNG أو WebP)";
+    console.error(`[img] rejected act=${act} id=${id} len=${img.length} head=${img.slice(0, 30)}`);
+    return `فشل رفع الصورة: ${why}. لم يُحفظ أي تغيير.`;
+  }
   if (act && !NO_GENERIC_AUDIT.has(act)) {
     const det: Record<string, string> = {};
     for (const [k, v] of Object.entries(visibleForm)) if (!HIDE.has(k) && v !== "") det[k] = v.slice(0, 120);
@@ -102,11 +106,19 @@ export async function adminAct(act: string, f: F, visibleForm: Record<string, st
     case "farm_save": {
       const name = f("name").trim().slice(0, 100), price = Math.max(0, Number(f("price")) || 0), level = Math.max(0, Math.floor(Number(f("level")) || 0)), descr = f("descr").trim().slice(0, 800);
       if (!name || !(price > 0)) return "اسم المزرعة والسعر (USDT) مطلوبان";
+      let fid = id;
       if (id > 0) {
         await run(`UPDATE farms SET name=$1, price=$2, level=$3, descr=$4, active=$5 WHERE id=$6`, [name, price, level, descr, bool(f("active")), id]);
         if (img) await run(`UPDATE farms SET image = $1 WHERE id = $2`, [img, id]);
-      } else await run(`INSERT INTO farms (name, image, descr, level, price, active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [name, img || null, descr, level, price, bool(f("active")), t]);
-      return "تم حفظ المزرعة";
+        else if (f("noimg") === "1") await run(`UPDATE farms SET image = NULL WHERE id = $1`, [id]);
+      } else fid = Number((await run(`INSERT INTO farms (name, image, descr, level, price, active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [name, img || null, descr, level, price, bool(f("active")), t]))[0]?.id ?? 0);
+      if (img) { // read back to make sure the picture really reached the database
+        const chk = await first(`SELECT length(image) l FROM farms WHERE id = $1`, [fid]);
+        if (num(chk?.l) !== img.length) { console.error(`[img] farm ${fid}: stored ${num(chk?.l)} of ${img.length} chars`); return "تم حفظ المزرعة لكن فشل حفظ الصورة. حاول مرة أخرى بصورة أصغر."; }
+        return `تم حفظ المزرعة ورفع صورتها بنجاح (${Math.round(img.length * 0.75 / 1024)} KB) ✓`;
+      }
+      const has = await first(`SELECT image IS NOT NULL h FROM farms WHERE id = $1`, [fid]);
+      return num(has?.h) || has?.h === true ? "تم حفظ المزرعة (الصورة السابقة كما هي)" : "تم حفظ المزرعة بدون صورة — ستظهر صورة افتراضية في التطبيق";
     }
     case "farm_del": {
       const fm = await first(`SELECT sold FROM farms WHERE id = $1`, [id]);

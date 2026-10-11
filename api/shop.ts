@@ -64,7 +64,7 @@ if (!(await first(`SELECT 1 FROM settings WHERE k = $1`, ["seed_catimg_v1"]))) {
 
 // ---------- image helpers ----------
 /** SQL fragment that fetches only what is needed to build an image URL (never the whole data URL). */
-export const IMG = (c = "image", p = "") => `${p}${c} IS NOT NULL AS has_img, length(${p}${c}) AS il, substr(${p}${c}, 60, 20) AS ih, CASE WHEN ${p}${c} LIKE 'data:%' THEN '' ELSE COALESCE(${p}${c}, '') END AS img_ref`;
+export const IMG = (c = "image", p = "") => `${p}${c} IS NOT NULL AS has_img, length(${p}${c}) AS il, substr(${p}${c}, length(${p}${c}) - 19, 20) AS ih, CASE WHEN ${p}${c} LIKE 'data:%' THEN '' ELSE COALESCE(${p}${c}, '') END AS img_ref`;
 const vOf = (r: Row) => (num(r.il) * 31 + [...String(r.ih ?? "")].reduce((a, c) => (a * 33 + c.charCodeAt(0)) >>> 0, 7)).toString(36);
 export function imgUrl(kind: string, r: Row): string | null {
   if (!r.has_img || r.has_img === "f" || r.has_img === 0) return null;
@@ -296,7 +296,10 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
   async orders(b) {
     const u = await authUser(b);
     const rows = await run(`SELECT * FROM orders WHERE user_id = $1 ORDER BY id DESC LIMIT 100`, [u.id]);
-    return ok({ orders: rows.map(ordOut) });
+    const fids = [...new Set(rows.filter((o) => o.kind === "farm" && num(o.ref_id) > 0).map((o) => num(o.ref_id)))];
+    const fimg = new Map<number, string | null>();
+    if (fids.length) for (const f of await run(`SELECT id, ${IMG()} FROM farms WHERE id IN (${fids.map((_, i) => "$" + (i + 1)).join(",")})`, fids)) fimg.set(num(f.id), imgUrl("f", f));
+    return ok({ orders: rows.map((o) => ({ ...ordOut(o), img: o.kind === "farm" ? fimg.get(num(o.ref_id)) ?? null : null })) });
   },
   async announcements() {
     const rows = await run(`SELECT id, title, body, ${IMG()}, pinned, created_at FROM announcements WHERE active = 1 ORDER BY pinned DESC, id DESC LIMIT 50`);

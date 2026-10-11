@@ -232,7 +232,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   function drawConfirm() {
     const o = HD.cf; if (!o) return;
     const tot = cv(o.usdt), have = bal(), low = have < tot;
-    xsheet(`<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${typeof o.extra == "function" ? o.extra() : o.extra || ""}
+    xsheet(`${o.img ? `<img class="xfb" src="${E(o.img)}" alt="" style="width:84px;height:84px;border-radius:18px;object-fit:cover;display:block;margin:0 auto 8px">` : ""}<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${typeof o.extra == "function" ? o.extra() : o.extra || ""}
       <div class="xr" style="margin:8px 0">${CURS.map((c) => `<button class="xchip ${c == HD.cur ? "on" : ""}" data-x="cc:${c}">${c}</button>`).join("")}</div>
       <div class="line"><span>${xt("total")}</span><b>${amt(tot)}</b></div><div class="line"><span>${xt("yourbal")}</span><span>${amt(have)}</span></div><div id="xerr"></div>
       ${low ? `<div class="xerr">${emsg({ error: "insufficient_balance" })}</div><button class="go" data-x="gotop"><span>${xt("topup")}</span></button>` : `<button class="go" id="xgo" data-x="dobuy"><span>${xt("confirm")}</span></button>`}
@@ -283,11 +283,13 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   };
 
   /* ---------- farms / codes / boxes / groups ---------- */
+  const FARM_FB = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE9A8"/><stop offset="1" stop-color="#F6B73C"/></linearGradient></defs><rect width="96" height="96" rx="20" fill="url(#g)"/><path d="M18 46L48 22l30 24v28H18z" fill="#E53935"/><path d="M12 48L48 18l36 30" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><rect x="38" y="52" width="20" height="22" rx="2" fill="#fff"/><path d="M38 52l20 22M58 52L38 74" stroke="#E53935" stroke-width="3"/></svg>');
+  document.addEventListener("error", (e) => { const t = e.target; if (t && t.tagName === "IMG" && t.classList.contains("xfb") && !t.dataset.fb) { t.dataset.fb = "1"; t.src = FARM_FB; } }, true);
   async function openFarms() {
     xsheet(`<h2>${xt("farms")}</h2><div class="empty"><div class="xr" style="justify-content:center">…</div></div>`);
     const r = await api("farms", {}); if (!r.ok) return closeX();
     HD.farms = r.farms;
-    xsheet(`<h2>${xt("farms")}</h2>` + (r.farms.length ? r.farms.map((f) => `<div class="xp">${f.image ? `<img src="${E(f.image)}" alt="">` : `<div class="xph"></div>`}<div class="xpi"><b>${E(f.name)}</b><small>Lv ${f.level}${f.descr ? " · " + E(f.descr) : ""}</small><div class="xr"><b>${mon(f.price)}</b><button class="xbtn" data-x="farmbuy:${f.id}">${xt("buy")}</button></div></div></div>`).join("") + `<p class="xmut" style="margin-top:10px">${xt("farmnote")}</p>` : `<p class="empty">${xt("nofarm")}</p>`));
+    xsheet(`<h2>${xt("farms")}</h2>` + (r.farms.length ? r.farms.map((f) => `<div class="xp"><img class="xfb" src="${E(f.image || FARM_FB)}" alt=""><div class="xpi"><b>${E(f.name)}</b><small>Lv ${f.level}${f.descr ? " · " + E(f.descr) : ""}</small><div class="xr"><b>${mon(f.price)}</b><button class="xbtn" data-x="farmbuy:${f.id}">${xt("buy")}</button></div></div></div>`).join("") + `<p class="xmut" style="margin-top:10px">${xt("farmnote")}</p>` : `<p class="empty">${xt("nofarm")}</p>`));
   }
   async function openCodes() {
     const r = await api("codes", {}); if (!r.ok) return;
@@ -638,7 +640,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     subList(xt("purchases"), "acct", "xpg");
     const r = await call("orders", {}); const el = $("xpg"); if (!r.ok || !el) return;
     const f = r.orders.filter((o) => o.kind == "farm");
-    el.innerHTML = f.length ? f.map((o) => `<div class="xc"><div class="xr sp"><b>${E(o.name)}</b>${stChip(o.status)}</div><small>${xt("pdate")}: ${fdate(o.created_at)}</small><small>${xt("price")}: ${amt(o.total, o.currency)} · #${o.id}</small>${o.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : !["cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : ""}</div>`).join("") : `<p class="empty">${xt("nopurch")}</p>`;
+    el.innerHTML = f.length ? f.map((o) => `<div class="xc"><div class="xr sp"><span style="display:flex;align-items:center;gap:10px;min-width:0"><img class="xfb" src="${E(o.img || FARM_FB)}" alt="" style="width:54px;height:54px;border-radius:14px;object-fit:cover;flex:none"><b>${E(o.name)}</b></span>${stChip(o.status)}</div><small>${xt("pdate")}: ${fdate(o.created_at)}</small><small>${xt("price")}: ${amt(o.total, o.currency)} · #${o.id}</small>${o.delivery ? `<small>${xt("cdata")}</small><div class="xcode">${E(o.delivery)}</div><button class="xbtn" data-x="copyo:${o.id}">${xt("copy")}</button>` : !["cancelled"].includes(o.status) ? `<small>${xt("waitdel")}</small>` : ""}</div>`).join("") : `<p class="empty">${xt("nopurch")}</p>`;
     HD.orders = r.orders;
   }
   async function drawOrdersPage() {
@@ -853,7 +855,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "nwref") nwLoad(true);
     else if (a == "nwopen") nwOpen(i);
     else if (a == "evtab") { HD.evTab = i; evDraw(); }
-    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
+    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, img: f.image || FARM_FB, lines: xt("farmnote"), usdt: f.price, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
     else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
     else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
     else if (a == "boxbuy") { const bx = HD.boxes.find((x) => x.id == i); if (bx) xconfirm({ title: bx.name, lines: Z("الجائزة تُحدَّد عشوائيًا من الخادم.", "The prize is picked randomly by the server.", "Phần thưởng được máy chủ chọn ngẫu nhiên.", "奖品由服务器随机抽取。"), usdt: bx.price, run: (cur, key) => purchase("random_buy", { id: bx.id, currency: cur, idem_key: key }, (o) => (o.lines && o.lines[0] && o.lines[0].prize) || "") }); }
