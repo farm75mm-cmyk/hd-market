@@ -672,11 +672,11 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   async function drawAlertsPage() {
     subList(xt("alerts"), "acct", "xpg");
     const [r, a] = await Promise.all([call("notifications", {}), api("announcements", {})]); const el = $("xpg"); if (!r.ok || !el) return;
-    HD.unread = r.unread; drawBadges();
+    HD.unread = r.unread; drawBadges(); dbgLine();
     const card = (n) => `<div class="xc${n.is_read ? "" : " xun"}" data-x="notif:${n.id}" style="${n.is_read ? "opacity:.7" : "border-color:#E8A900"};cursor:pointer"><div class="xnr"><b>${E(L == "ar" ? n.title : n.title_en || n.title)}</b>${n.is_read ? "" : `<span class="xnw">${xt("alerttag")}</span>`}</div><div>${E(L == "ar" ? n.body : n.body_en || n.body)}</div><small>${fdate(n.created_at)}</small></div>`;
     el.innerHTML = `<div class="xr sp"><b>${xt("alerts")}<span class="xnc" id="xnc" ${r.unread ? "" : "hidden"}>${r.unread}</span></b><button class="xbtn" data-x="readall">${xt("readall")}</button></div>` +
       (r.items.length ? r.items.map(card).join("") : `<p class="empty">${xt("nonotif")}</p>`) +
-      (a.ok && a.items.length ? `<h2 style="margin-top:18px">${xt("anns")}</h2>` + a.items.map((n) => `<div class="xc">${n.image ? `<img loading="lazy" decoding="async" src="${E(n.image)}" style="width:100%;border-radius:14px;margin-bottom:8px" alt="">` : ""}<b>${n.pinned ? "📌 " : ""}${E(n.title)}</b><div style="white-space:pre-wrap">${E(n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("") : "");
+      `<small class="xmut" id="xdbg" style="display:block;margin-top:10px;text-align:center;opacity:.6"></small>` + (a.ok && a.items.length ? `<h2 style="margin-top:18px">${xt("anns")}</h2>` + a.items.map((n) => `<div class="xc">${n.image ? `<img loading="lazy" decoding="async" src="${E(n.image)}" style="width:100%;border-radius:14px;margin-bottom:8px" alt="">` : ""}<b>${n.pinned ? "📌 " : ""}${E(n.title)}</b><div style="white-space:pre-wrap">${E(n.body)}</div><small>${fdate(n.created_at)}</small></div>`).join("") : "");
   }
   function drawPage() {
     const p = HD.page;
@@ -703,6 +703,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const bell = document.querySelector('[data-h="b"]'); if (bell && HD.unread) bell.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.unread > 99 ? "99+" : HD.unread}</span>`);
     const sb = document.querySelector('#nav [data-n="4"]'); if (sb && HD.sup) sb.insertAdjacentHTML("beforeend", `<span class="xbd">${HD.sup}</span>`);
   }
+  const dbgLine = () => { const e = $("xdbg"); if (!e) return; const sc = document.querySelector('script[src*="hd-live.js"]'); const v = ((sc && sc.src.match(/v=(\d+)/)) || [])[1] || "?"; const d = new Date(); e.textContent = `v${v} · ${d.toLocaleTimeString(LOC[L])} · ${xt("unreadn")}: ${HD.unread || 0}`; };
   let pollBusy = false;
   async function pollNotifs(withSup = true) {
     if (!TOKEN || $("app").hidden || pollBusy) return;
@@ -712,6 +713,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   async function pollNotifs0(withSup) {
     const r = await call("notif_poll", {});
     if (r.ok) {
+      dbgLine();
       checkForce(r.fu);
       const prevU = HD.unread || 0;
       HD.unread = r.unread;

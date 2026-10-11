@@ -257,8 +257,7 @@ const BASE: Record<string, (b: Row) => Promise<Response>> = {
     const pt = String(b.push_token ?? "");
     if (!/^Expo(nent)?PushToken\[[\w-]+\]$/.test(pt)) throw new Fail("invalid");
     const tone = TONES.includes(String(b.tone)) ? String(b.tone) : "soft_bell";
-    await run(`DELETE FROM push_tokens WHERE token = $1`, [pt]);
-    await run(`INSERT INTO push_tokens (token, user_id, updated_at, tone) VALUES ($1,$2,$3,$4)`, [pt, u.id, now(), tone]);
+    await run(`INSERT INTO push_tokens (token, user_id, updated_at, tone) VALUES ($1,$2,$3,$4) ON CONFLICT (token) DO UPDATE SET user_id = $2, updated_at = $3, tone = $4`, [pt, u.id, now(), tone]);
     return ok();
   },
   async push_unregister(b) {
