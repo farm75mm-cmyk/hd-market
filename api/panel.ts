@@ -28,7 +28,7 @@ const redirect = (to: string, headers: string[] = []) => { const hd = new Header
 
 const loginForm = (lang: "ar" | "en", err: string) => {
   const t = mkT(lang);
-  return `<form class="login" method="post"><div style="text-align:center"><img src="${WEB_ORIGIN}/img/logo-192.png" width="72" height="72" style="border-radius:20px" alt=""></div><h2 style="text-align:center;margin-top:10px">HD Market · ${h(t("لوحة الإدارة"))}</h2>${err ? `<div class="err">${h(err)}</div>` : ""}<input type="hidden" name="do" value="login"><label>${h(t("اسم المدير"))}</label><input type="text" name="u" autocomplete="username" required><label>${h(t("كلمة المرور"))}</label><input type="password" name="p" autocomplete="current-password" required><p><button style="width:100%;padding:13px">${h(t("دخول"))}</button></p></form>`;
+  return `<form class="login" method="post"><div style="text-align:center"><img src="${WEB_ORIGIN}/img/logo-192.png?v=2" width="72" height="72" style="border-radius:20px" alt=""></div><h2 style="text-align:center;margin-top:10px">HD Market · ${h(t("لوحة الإدارة"))}</h2>${err ? `<div class="err">${h(err)}</div>` : ""}<input type="hidden" name="do" value="login"><label>${h(t("اسم المدير"))}</label><input type="text" name="u" autocomplete="username" required><label>${h(t("كلمة المرور"))}</label><input type="password" name="p" autocomplete="current-password" required><p><button style="width:100%;padding:13px">${h(t("دخول"))}</button></p></form>`;
 };
 
 export async function admin(req: Request): Promise<Response> {

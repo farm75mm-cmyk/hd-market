@@ -15,7 +15,8 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#000000"
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#14181C"
       },
       "googleServicesFile": "./google-services.json"
     },
@@ -32,7 +33,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#000000",
+          "color": "#14181C",
           "defaultChannel": "support",
           "sounds": [
             "./assets/sounds/hd_soft_bell.wav",

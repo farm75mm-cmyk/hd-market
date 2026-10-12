@@ -117,7 +117,7 @@ export function layout(ctx: Ctx, title: string, body: string, badges: Record<str
   const nav = NAV.map((g) => ({ ...g, items: g.items.filter(([k]) => k !== "admins" || ctx.owner) })).map((g) => `${g.title ? `<div class="gt">${h(t(g.title))}</div>` : ""}${g.items.map(([k, i, l]) => `<a class="ni${k === tab ? " on" : ""}" href="/admin?tab=${k}">${tile(TAB_ICON[k][1], i, 52)}<span>${h(t(l))}</span>${badges[k] ? `<i>${badges[k]}</i>` : ""}</a>`).join("")}`).join("");
   const other = lang === "ar" ? "en" : "ar";
   return `<div id="ov" onclick="document.body.classList.remove('open')"></div>
-<aside id="dr"><a class="dh" href="/admin" style="text-decoration:none;color:inherit"><img src="${WEB_ORIGIN}/img/logo-192.png" alt=""><div><b>HD Market</b><small>${h(t("لوحة الإدارة"))}</small></div></a>
+<aside id="dr"><a class="dh" href="/admin" style="text-decoration:none;color:inherit"><img src="${WEB_ORIGIN}/img/logo-192.png?v=2" alt=""><div><b>HD Market</b><small>${h(t("لوحة الإدارة"))}</small></div></a>
 <a class="ni${tab === "home" ? " on" : ""}" href="/admin" style="margin-top:8px">${tile(4, "chart", 52)}<span>${h(t("الرئيسية"))}</span></a>${nav}</aside>
 <header class="top"><button class="sq mb" type="button" aria-label="menu" onclick="document.body.classList.add('open')">${ic("menu", 24)}</button><div class="ttl">${h(title)}</div>
 <form method="post" action="/admin"><input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="do" value="logout"><button class="sq" aria-label="logout">${ic("out", 22)}</button></form></header>
