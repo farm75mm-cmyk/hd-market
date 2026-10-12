@@ -3,7 +3,7 @@
 // user's wallet in JOD / IQD / USDT through the exchange rates set by the admin.
 import {
   run, first, count, withTx, isSqlite, serial, num, nowS, rnd, r4, txid, env, Fail, ok, json, Row, Q, isDup,
-  CURRENCIES, DEC, CNAMES, getItemPrices, getRates, fromUsdt, audit, getSet, putSet, balancesOf, authUser, pushTo, TONES,
+  CURRENCIES, DEC, CNAMES, getItemPrices, getRates, fromUsdt, audit, getSet, putSet, balancesOf, authUser, pushTo, TONES, validEmail, hmac, safeEq, SECRET, sendLinkMail,
 } from "./core";
 import food from "./food.json";
 
@@ -26,6 +26,16 @@ await run(`CREATE TABLE IF NOT EXISTS tag_usage (product_id BIGINT NOT NULL, tag
 await alter(`ALTER TABLE products ADD COLUMN descr TEXT`);
 await alter(`ALTER TABLE products ADD COLUMN kind TEXT NOT NULL DEFAULT 'tool'`);
 await run(`CREATE UNIQUE INDEX IF NOT EXISTS order_idem ON orders (user_id, idem_key)`);
+// farm <-> e-mail link requests (admin links the farm outside the app, then confirms here)
+await run(`CREATE TABLE IF NOT EXISTS farm_links (id ${serial}, user_id BIGINT NOT NULL, farm_id BIGINT NOT NULL, farm_name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL, token TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'review', verified INT NOT NULL DEFAULT 0, verified_at BIGINT NOT NULL DEFAULT 0, admin_note TEXT NOT NULL DEFAULT '', order_id BIGINT NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
+await run(`CREATE INDEX IF NOT EXISTS farm_links_user ON farm_links (user_id, id)`);
+await run(`CREATE UNIQUE INDEX IF NOT EXISTS farm_links_active ON farm_links (user_id, farm_id) WHERE status IN ('review','linked') AND order_id = 0`);
+await run(`CREATE TABLE IF NOT EXISTS farm_link_log (id ${serial}, link_id BIGINT NOT NULL, actor TEXT NOT NULL, from_status TEXT NOT NULL DEFAULT '', to_status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL)`);
+await run(`CREATE TABLE IF NOT EXISTS link_codes (user_id BIGINT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at BIGINT NOT NULL, attempts INT NOT NULL DEFAULT 0, sent_at BIGINT NOT NULL, win_start BIGINT NOT NULL DEFAULT 0, sends INT NOT NULL DEFAULT 0)`);
+export const LINK_ST = ["review", "linked", "failed", "rejected"];
+const linkOut = (l: Row) => ({ id: num(l.id), farm_id: num(l.farm_id), farm_name: l.farm_name, email: l.email, status: l.status, verified: num(l.verified), note: l.admin_note ?? "", can_buy: l.status === "linked" && !num(l.order_id), used: num(l.order_id) > 0, created_at: num(l.created_at), updated_at: num(l.updated_at) });
 await run(`CREATE TABLE IF NOT EXISTS farms (id ${serial}, name TEXT NOT NULL, image TEXT, descr TEXT, level INT NOT NULL DEFAULT 0, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   active INT NOT NULL DEFAULT 1, sold INT NOT NULL DEFAULT 0, buyer_id BIGINT NOT NULL DEFAULT 0, order_id BIGINT NOT NULL DEFAULT 0, sold_at BIGINT NOT NULL DEFAULT 0,
   game_id TEXT, token TEXT, created_at BIGINT NOT NULL)`);
@@ -260,16 +270,68 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       return ro;
     }));
   },
+  // ----- farm <-> e-mail link -----
+  async link_code(b) {
+    const u = await authUser(b);
+    const email = String(b.email ?? "").trim().toLowerCase(), lang = String(b.lang ?? "ar"), t = nowS();
+    if (!validEmail(email)) throw new Fail("invalid_email");
+    const prev = await first(`SELECT * FROM link_codes WHERE user_id = $1`, [u.id]);
+    if (prev && t - num(prev.sent_at) < 60) throw new Fail("too_many", 429, { wait: 60 - (t - num(prev.sent_at)) });
+    const inWin = prev && t - num(prev.win_start) < 3600;
+    if (inWin && num(prev!.sends) >= 5) throw new Fail("too_many", 429, { wait: 3600 - (t - num(prev!.win_start)) });
+    const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await run(`INSERT INTO link_codes (user_id, email, code_hash, expires_at, attempts, sent_at, win_start, sends) VALUES ($1,$2,$3,$4,0,$5,$6,$7)
+      ON CONFLICT (user_id) DO UPDATE SET email = $2, code_hash = $3, expires_at = $4, attempts = 0, sent_at = $5, win_start = $6, sends = $7`,
+      [u.id, email, hmac(SECRET + "link" + u.id + email, code), t + 600, t, inWin ? num(prev!.win_start) : t, inWin ? num(prev!.sends) + 1 : 1]);
+    if (!(await sendLinkMail(email, lang, code))) {
+      if (env("DEBUG_RETURN_CODE") === "1") return ok({ debug_code: code });
+      throw new Fail("mail_failed", 502);
+    }
+    return ok({ sent: true });
+  },
+  async link_submit(b) {
+    const u = await authUser(b);
+    const fid = Math.floor(Number(b.farm_id)), email = String(b.email ?? "").trim().toLowerCase(), token = String(b.farm_token ?? "").trim(), code = String(b.code ?? "").replace(/\D/g, ""), t = nowS();
+    if (!(fid > 0) || !validEmail(email) || token.length < 6 || token.length > 2000 || code.length !== 6) throw new Fail("invalid");
+    const farm = await first(`SELECT id, name FROM farms WHERE id = $1 AND active = 1 AND sold = 0`, [fid]);
+    if (!farm) throw new Fail("not_found", 404);
+    const act = await first(`SELECT * FROM farm_links WHERE user_id = $1 AND farm_id = $2 AND status IN ('review','linked') AND order_id = 0`, [u.id, fid]);
+    if (act) return ok({ link: linkOut(act), duplicate: true });
+    const lc = await first(`SELECT * FROM link_codes WHERE user_id = $1`, [u.id]);
+    if (!lc || lc.email !== email || num(lc.expires_at) < t || num(lc.attempts) >= 5) throw new Fail("invalid_code");
+    if (!safeEq(String(lc.code_hash), hmac(SECRET + "link" + u.id + email, code))) { await run(`UPDATE link_codes SET attempts = attempts + 1 WHERE user_id = $1`, [u.id]); throw new Fail("invalid_code"); }
+    if (await first(`SELECT id FROM farm_links WHERE token = $1 AND user_id <> $2 AND status IN ('review','linked')`, [token, u.id])) throw new Fail("token_used", 409);
+    try {
+      const id = await withTx(async (q) => {
+        const r = await q(`INSERT INTO farm_links (user_id, farm_id, farm_name, email, token, status, verified, verified_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'review',1,$6,$6,$6) RETURNING id`, [u.id, fid, String(farm.name).slice(0, 200), email, token.slice(0, 2000), t]);
+        await q(`INSERT INTO farm_link_log (link_id, actor, from_status, to_status, note, created_at) VALUES ($1,$2,'','review','',$3)`, [r[0].id, "user:" + u.id, t]);
+        await q(`DELETE FROM link_codes WHERE user_id = $1`, [u.id]);
+        return num(r[0].id);
+      });
+      return ok({ link: linkOut((await first(`SELECT * FROM farm_links WHERE id = $1`, [id]))!) });
+    } catch (e) {
+      if (isDup(e)) { const x = await first(`SELECT * FROM farm_links WHERE user_id = $1 AND farm_id = $2 AND status IN ('review','linked') AND order_id = 0`, [u.id, fid]); if (x) return ok({ link: linkOut(x), duplicate: true }); }
+      throw e;
+    }
+  },
+  async link_list(b) {
+    const u = await authUser(b);
+    return ok({ links: (await run(`SELECT * FROM farm_links WHERE user_id = $1 ORDER BY id DESC LIMIT 50`, [u.id])).map(linkOut) });
+  },
   async farm_buy(b) {
     const u = await authUser(b);
     const cur = curOf(b), idem = idemOf(b);
     const dup = await dupOrder(u.id, idem); if (dup) return dup;
+    const linkId = Math.floor(Number(b.link_id)) || 0;
     return finish(u.id, idem, () => withTx(async (q) => {
+      // linked purchase: only with an admin-confirmed link of this user for this farm, usable once
+      if (linkId) { const lk = (await q(`UPDATE farm_links SET order_id = -1, updated_at = $1 WHERE id = $2 AND user_id = $3 AND farm_id = $4 AND status = 'linked' AND order_id = 0 RETURNING id`, [nowS(), linkId, u.id, Number(b.id)]))[0]; if (!lk) throw new Fail("link_required", 403); }
       const f = (await q(`UPDATE farms SET qty = qty - 1, sold = CASE WHEN qty <= 1 THEN 1 ELSE 0 END, buyer_id = $1, sold_at = $2 WHERE id = $3 AND sold = 0 AND active = 1 AND qty >= 1 RETURNING *`, [u.id, nowS(), Number(b.id)]))[0];
       if (!f) throw new Fail("out_of_stock", 409);
       const fa = await lineAmt(q, "farm", num(f.id), cur, num(f.price), 1, await getRates(q));
       const r = await placeOrder(q, u, cur, { over: fa.ov ? fa.amt : null, kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem, expect: expOf(b) });
       await q(`UPDATE farms SET order_id = $1 WHERE id = $2`, [r.id, f.id]);
+      if (linkId) await q(`UPDATE farm_links SET order_id = $1 WHERE id = $2`, [r.id, linkId]);
       return r;
     }));
   },

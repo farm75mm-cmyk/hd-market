@@ -7,10 +7,10 @@ import { ADMIN_EMAIL, ADMIN_USER } from "./core";
 import { assistAct } from "./assist";
 import { evAct } from "./events";
 import { pushSend, notifyUpdate } from "./broadcast";
-import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll } from "./shop";
+import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll, LINK_ST } from "./shop";
 
 type F = (k: string) => string;
-const NO_GENERIC_AUDIT = new Set(["admin_add", "admin_delete", "admin_ban", "admin_unban", "dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "wallet_zero", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
+const NO_GENERIC_AUDIT = new Set(["link_set", "admin_add", "admin_delete", "admin_ban", "admin_unban", "dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "wallet_zero", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
 const HIDE = new Set(["image", "csrf", "do", "token", "game_id", "codes", "password"]);
 const ORDER_ST = ["new", "processing", "done", "cancelled"];
 const bool = (v: string) => (v === "1" || v === "on" ? 1 : 0);
@@ -163,6 +163,32 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
       await run(`UPDATE farms SET game_id = $1, token = $2 WHERE id = $3`, [f("game_id").trim().slice(0, 300), f("token").trim().slice(0, 2000), id]);
       await audit(run, actor(), "farm_credentials_updated", "farm", id, {});
       return "تم حفظ بيانات المزرعة";
+    }
+
+    // ----- farm <-> e-mail link requests -----
+    case "link_set": {
+      const st = f("status"), note = f("note").trim().slice(0, 300);
+      if (!LINK_ST.includes(st)) return "حالة غير صالحة";
+      const l = await first(`SELECT * FROM farm_links WHERE id = $1`, [id]);
+      if (!l) return "الطلب غير موجود";
+      if (num(l.order_id) !== 0) return "تم استخدام هذا الربط في عملية شراء ولا يمكن تعديله";
+      if (st === "linked" && !num(l.verified)) return "لا يمكن اعتماد الربط قبل التحقق من ملكية البريد";
+      if (l.status === st && (l.admin_note ?? "") === note) return "لا تغيير";
+      const r = await run(`UPDATE farm_links SET status = $1, admin_note = $2, updated_at = $3 WHERE id = $4 AND order_id = 0 RETURNING id`, [st, note, t, id]);
+      if (!r.length) return "تعذّر التحديث";
+      await run(`INSERT INTO farm_link_log (link_id, actor, from_status, to_status, note, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [id, actor(), l.status, st, note, t]);
+      await audit(run, actor(), "farm_link_" + st, "farm_link", id, { from: l.status, note });
+      if (l.status !== st && st !== "review") {
+        const M: Record<string, [string, string, string, string]> = {
+          linked: ["تم ربط المزرعة", "تم ربط مزرعتك بنجاح بالبريد الإلكتروني المسجل، ويمكنك الآن متابعة عملية الشراء.", "Farm linked", "Your farm was successfully linked to your registered email. You can now continue with the purchase."],
+          failed: ["فشل ربط المزرعة", "تعذّر ربط مزرعتك بالبريد الإلكتروني." + (note ? " " + note : "") + " يمكنك إعادة المحاولة.", "Farm link failed", "We could not link your farm to your email." + (note ? " " + note : "") + " You can try again."],
+          rejected: ["رُفض طلب ربط المزرعة", "تم رفض طلب ربط مزرعتك." + (note ? " " + note : ""), "Farm link rejected", "Your farm link request was rejected." + (note ? " " + note : "")],
+        };
+        const m = M[st];
+        await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'order',$2,$3,$4,$5,$6,$7)`, [l.user_id, m[0], m[1], m[2], m[3], "LNK-" + id, t]);
+        await pushTo(Number(l.user_id), "HD Market", m[1], "notifications");
+      }
+      return st === "linked" ? "تم تأكيد ربط المزرعة وإشعار المستخدم" : "تم تحديث حالة الطلب";
     }
 
     // ----- subscription codes -----

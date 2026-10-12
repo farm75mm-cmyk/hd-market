@@ -228,6 +228,27 @@ export async function sendResetMail(to: string, lang: string, code: string) {
   } catch { return false; }
 }
 
+/** one-time code that proves the user owns the e-mail typed for a farm link (not a Google/Supercell code; never shown in the panel). */
+export async function sendLinkMail(to: string, lang: string, code: string) {
+  const key = env("RESEND_API_KEY");
+  if (!key) return false;
+  const T: Record<string, [string, string]> = {
+    ar: ["رمز التحقق من البريد - ربط المزرعة - HD Market", `رمز التحقق الخاص بك: ${code}\nصالح لمدة 10 دقائق. أدخله داخل تطبيق HD Market فقط. لن نطلب منك كلمة مرور بريدك أبدًا. إذا لم تطلبه فتجاهل هذه الرسالة.`],
+    en: ["Email verification code - farm link - HD Market", `Your verification code: ${code}\nValid for 10 minutes. Enter it inside the HD Market app only. We never ask for your email password. If you didn't request it, ignore this email.`],
+    vi: ["Mã xác minh email - liên kết nông trại - HD Market", `Mã xác minh của bạn: ${code}\nCó hiệu lực 10 phút. Chỉ nhập trong ứng dụng HD Market. Chúng tôi không bao giờ hỏi mật khẩu email của bạn.`],
+    zh: ["邮箱验证码 - 农场绑定 - HD Market", `你的验证码：${code}\n10分钟内有效，仅在 HD Market 应用内输入。我们绝不会索要你的邮箱密码。`],
+  };
+  const t = T[lang] ?? T.ar;
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: env("MAIL_FROM", "HD Market <onboarding@resend.dev>"), to: [to], subject: t[0], text: t[1] }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
 // ---------- wallet core ----------
 export const CURRENCIES = ["JOD", "IQD", "USDT"];
 export const DEC: Record<string, number> = { JOD: 3, IQD: 0, USDT: 4 };

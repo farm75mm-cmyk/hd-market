@@ -425,9 +425,37 @@ async function settingsPage(ctx: Ctx): Promise<Page> {
     <button class="y">${h(t("حفظ"))}</button>`)}</div>` };
 }
 
+// ---------- farm <-> e-mail link requests ----------
+const LINK_AR: Record<string, string> = { review: "قيد المراجعة", linked: "تم ربط المزرعة", failed: "فشل الربط", rejected: "رفض الطلب" };
+const LINK_CHIP: Record<string, string> = { review: "processing", linked: "done", failed: "bad", rejected: "cancelled" };
+async function farmLinksPage(ctx: Ctx): Promise<Page> {
+  const { t, F, hid } = ctx; const pg = pageNo(ctx), per = 30;
+  const st = ctx.url.searchParams.get("st") ?? "all", q = (ctx.url.searchParams.get("q") ?? "").trim().toLowerCase();
+  const params: any[] = []; let where = "1=1";
+  if (["review", "linked", "failed", "rejected"].includes(st)) { params.push(st); where += ` AND l.status = $${params.length}`; }
+  if (q) { params.push("%" + q + "%"); where += ` AND (LOWER(u.username) LIKE $${params.length} OR l.email LIKE $${params.length})`; }
+  const total = await count(`SELECT COUNT(*) c FROM farm_links l LEFT JOIN users u ON u.id = l.user_id WHERE ${where}`, params);
+  const rows = await run(`SELECT l.*, u.username FROM farm_links l LEFT JOIN users u ON u.id = l.user_id WHERE ${where} ORDER BY l.id DESC LIMIT ${per} OFFSET ${(pg - 1) * per}`, params);
+  let out = `<p class="hint">${h(t("بعد ربط المزرعة بالبريد من جهتك اضغط «تم ربط المزرعة» ليصل المستخدم إشعار ويستطيع متابعة الشراء. رمز التحقق من البريد لا يُعرض هنا ولا يُخزَّن كنص."))}</p>${chips(ctx, "st", [["all", "الكل"], ["review", "قيد المراجعة"], ["linked", "تم ربط المزرعة"], ["failed", "فشل الربط"], ["rejected", "رفض الطلب"]], st)}${searchBox(ctx, q, "ابحث باسم المستخدم أو البريد")}`;
+  for (const l of rows) {
+    const logs = await run(`SELECT * FROM farm_link_log WHERE link_id = $1 ORDER BY id DESC LIMIT 30`, [l.id]);
+    const locked = num(l.order_id) !== 0;
+    out += `<div class="item"><div class="hd"><div><b>#${num(l.id)} · ${h(l.username ?? "—")}</b> ${statusChip(LINK_CHIP[l.status] ?? "new", t(LINK_AR[l.status] ?? l.status))} ${num(l.verified) ? statusChip("ok", t("البريد موثّق")) : statusChip("bad", t("غير موثّق"))}${locked ? ` <span class="chip">${h(t("استُخدم في شراء"))}</span>` : ""}<br>
+      <span class="sm">${h(t("المزرعة"))}: <b>${h(l.farm_name)}</b> · ${fmtT(l.created_at)}</span></div></div>
+      <div class="sm" dir="ltr" style="text-align:right;margin-top:8px"><b>Email:</b> ${h(l.email)}</div>
+      <div class="mono sm" style="background:#f5f6fa;border-radius:10px;padding:8px 10px;margin-top:6px;white-space:pre-wrap;word-break:break-all"><b>Token:</b> ${h(l.token)}</div>
+      ${locked ? "" : `<div class="acts" style="margin-top:10px">${F("link_set", `${hid("id", l.id)}${hid("status", "linked")}<input type="text" name="note" placeholder="${h(t("ملاحظة للمستخدم (اختياري)"))}" value="${h(l.admin_note ?? "")}" style="min-width:150px"><button class="g">${h(t("تم ربط المزرعة"))}</button>`)}</div>
+      ${F("link_set", `${hid("id", l.id)}<div class="row" style="margin-top:8px"><select name="status">${["review", "linked", "failed", "rejected"].map((k) => `<option value="${k}"${l.status === k ? " selected" : ""}>${h(t(LINK_AR[k]))}</option>`).join("")}</select><input type="text" class="grow" name="note" placeholder="${h(t("ملاحظة (تظهر للمستخدم عند الفشل أو الرفض)"))}" value="${h(l.admin_note ?? "")}"><button class="y">${h(t("حفظ الحالة"))}</button></div>`)}`}
+      <details style="margin-top:8px"><summary>${h(t("سجل التعديلات"))} (${logs.length})</summary><div class="sm" style="margin-top:6px">${logs.map((g) => `<div>${fmtT(g.created_at)} · ${h(String(g.actor).startsWith("user:") ? t("المستخدم") : g.actor)} · ${h(g.from_status ? t(LINK_AR[g.from_status] ?? g.from_status) + " ← " : "")}<b>${h(t(LINK_AR[g.to_status] ?? g.to_status))}</b>${g.note ? " · " + h(g.note) : ""}</div>`).join("")}</div></details></div>`;
+  }
+  if (!rows.length) out += `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد طلبات ربط."))}</div>`;
+  return { title: t("طلبات ربط المزارع"), body: out + pager(ctx, total, pg) };
+}
+
 export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
   switch (tab) {
     case "farm_orders": return ordersPage(ctx, "farm", "طلبات المزارع");
+    case "farm_links": return farmLinksPage(ctx);
     case "farm_delivery": return ordersPage(ctx, "farm", "تسليم المزارع", "اضغط «تسليم» لإرسال ID / Token للمشتري وإكمال الطلب. أدخل البيانات أولًا من «بيانات المزارع».");
     case "tool_orders": return ordersPage(ctx, "tool", "طلبات الأدوات والمنتجات");
     case "opt_orders": return ordersPage(ctx, "opt", "طلبات منتجات اختياري");
@@ -458,6 +486,7 @@ export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
 }
 export async function navBadges(): Promise<Record<string, number>> {
   return {
+    farm_links: await count(`SELECT COUNT(*) c FROM farm_links WHERE status = 'review'`),
     farm_delivery: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'farm' AND status IN ('new','processing')`),
     tool_orders: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'tool' AND status = 'new'`),
     opt_orders: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'opt' AND status = 'new'`),

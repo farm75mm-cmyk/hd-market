@@ -275,6 +275,73 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       <button class="go" style="margin-top:14px" data-x="closex"><span>${xt("close")}</span></button></div>`);
     HD.copyv = order.delivery || "";
   }
+  /* ---------- farm <-> e-mail link ---------- */
+  Object.assign(ERR, {
+    invalid_email: ["البريد الإلكتروني غير صالح.", "Invalid email address.", "Invalid email address.", "Invalid email address."],
+    invalid_code: ["رمز التحقق غير صحيح أو منتهي. اطلب رمزًا جديدًا.", "Wrong or expired code. Request a new one.", "Wrong or expired code.", "Wrong or expired code."],
+    mail_failed: ["تعذّر إرسال الرمز إلى بريدك الآن. حاول لاحقًا.", "Couldn't send the code right now. Try later.", "Couldn't send the code.", "Couldn't send the code."],
+    token_used: ["هذا التوكن مستخدم في طلب ربط آخر.", "This token is already used in another link request.", "Token already used.", "Token already used."],
+    link_required: ["هذا الشراء يتطلب ربطًا مؤكدًا من الإدارة.", "This purchase needs a link confirmed by the admin.", "Link required.", "Link required."],
+    invalid: ["تحقق من البيانات المدخلة.", "Check the entered data.", "Check the entered data.", "Check the entered data."],
+  });
+  const LKS = { review: ["قيد المراجعة", "Under review", "o"], linked: ["تم ربط المزرعة", "Farm linked", "g"], failed: ["فشل الربط", "Link failed", "r"], rejected: ["رفض الطلب", "Request rejected", "r"] };
+  const lkChip = (s) => { const x = LKS[s] || [s, s, ""]; return `<span class="xchip st-${x[2] == "g" ? "done" : x[2] == "r" ? "cancelled" : "new"}">${E(Z(x[0], x[1], x[1], x[1]))}</span>`; };
+  const farmConfirm = (f, lid) => xconfirm({ title: f.name, img: f.image || FARM_FB, lines: xt("farmnote"), usdt: f.price, pr: { prices: f.prices, n: 1 }, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key, link_id: lid || undefined }) });
+  const opt2 = (x, ico, t1, t2, on) => `<button class="xw${on ? " on" : ""}" data-x="${x}" style="width:100%;text-align:start;font-family:inherit;color:inherit"><span class="xph" style="display:grid;place-items:center;font-size:22px">${ico}</span><span class="xwi"><b>${t1}</b><small>${t2}</small></span></button>`;
+  async function farmChoose(f) {
+    if (!TOKEN) return;
+    const r = await call("link_list", {}); const ls = r.ok ? r.links.filter((l) => l.farm_id == f.id) : [];
+    const ready = ls.find((l) => l.can_buy), pend = ls.find((l) => l.status == "review"), last = ls[0];
+    xsheet(`<h2>${E(f.name)}</h2><div class="xmut">${Z("اختر طريقة الشراء", "Choose how to buy", "Choose how to buy", "Choose how to buy")}</div>
+      ${ready ? opt2(`farmgo:${f.id}:${ready.id}`, "✅", Z("متابعة شراء المزرعة المربوطة", "Continue with your linked farm", "Continue", "Continue"), Z("تم تأكيد الربط من الإدارة", "Link confirmed by the admin", "Link confirmed", "Link confirmed"), true) : ""}
+      ${opt2(`farmtest:${f.id}`, "🧪", Z("شراء مزرعة تجريبية (Test Farm)", "Buy a Test Farm", "Buy a Test Farm", "Buy a Test Farm"), Z("مزرعة بتوكن غير مرتبط ببريد إلكتروني", "A farm with a token not tied to an email", "Token not tied to an email", "Token not tied to an email"))}
+      ${pend ? `<div class="xc"><div class="xr sp"><b>${Z("طلب الربط", "Link request", "Link request", "Link request")}</b>${lkChip(pend.status)}</div><small>${Z("سنُشعرك فور اكتمال الربط.", "We'll notify you when linking is done.", "We'll notify you.", "We'll notify you.")}</small></div>` : opt2(`farmlink:${f.id}`, "🔗", Z("ربط مزرعتك بالبريد الإلكتروني", "Link your farm to your email", "Link your farm to your email", "Link your farm to your email"), Z("أرسل بيانات الربط لإكمال العملية", "Send the link details to continue", "Send the link details", "Send the link details"))}
+      ${!pend && !ready && last && last.status != "linked" ? `<div class="xc"><div class="xr sp"><b>${Z("آخر طلب ربط", "Last link request", "Last link request", "Last link request")}</b>${lkChip(last.status)}</div>${last.note ? `<small>${E(last.note)}</small>` : ""}</div>` : ""}
+      <button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
+  }
+  async function farmGo(fid, lid) {
+    let f = HD.farms.find((x) => x.id == fid);
+    if (!f) { const r = await api("farms", {}); f = r.ok && (r.farms || []).find((x) => x.id == fid); }
+    if (!f) { toast(emsg({ error: "not_found" })); return; }
+    farmConfirm(f, lid);
+  }
+  const lkBox = (lbl, inner) => `<div class="xc" style="padding:12px 14px"><b class="xmut" style="display:block;margin-bottom:6px">${lbl}</b>${inner}</div>`;
+  function drawLinkForm(f) {
+    xsheet(`<h2>${Z("ربط مزرعتك بالبريد الإلكتروني", "Link your farm to your email", "Link your farm to your email", "Link your farm to your email")}</h2><div class="xmut">${E(f.name)}</div>
+      ${lkBox("Gmail", `<input class="xin" id="lkem" type="email" inputmode="email" autocomplete="off" autocapitalize="off" dir="ltr" placeholder="name@gmail.com"><button class="xbtn" id="lksend" data-x="lksend" style="width:100%;padding:12px">${Z("إرسال رمز التحقق إلى بريدي", "Send the verification code to my email", "Send code", "Send code")}</button><small id="lkst" class="xmut" style="display:block;margin-top:6px"></small>`)}
+      ${lkBox("Token", `<input class="xin" id="lktk" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" dir="ltr" placeholder="Token">`)}
+      ${lkBox(Z("رمز التحقق", "Verification code", "Verification code", "Verification code"), `<input class="xin" id="lkcd" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" placeholder="123456" style="letter-spacing:6px;text-align:center">`)}
+      <div id="xerr"></div><button class="go" id="lkgo" data-x="lksubmit:${f.id}"><span>${Z("إرسال طلب الربط", "Submit link request", "Submit", "Submit")}</span></button>
+      <div class="xmut" style="margin-top:10px;font-size:13px">🔒 ${Z("لن نطلب منك كلمة مرور بريدك أبدًا. الرمز يصلك من HD Market لإثبات ملكيتك للبريد فقط.", "We never ask for your email password. The code comes from HD Market just to prove you own the email.", "We never ask for your email password.", "We never ask for your email password.")}</div>
+      <button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
+  }
+  const lkErr = (r) => { const e = $("xerr"); if (e) e.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; };
+  async function lkSend() {
+    const em = $("lkem"), b = $("lksend"), st = $("lkst"); if (!em || !b || b.disabled) return;
+    const v = em.value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { lkErr({ error: "invalid_email" }); return; }
+    b.disabled = true; $("xerr").innerHTML = "";
+    const r = await call("link_code", { email: v, lang: L });
+    if (!r.ok) { b.disabled = false; if (r.error == "too_many" && r.wait) { lkErr({ error: "too_many" }); } else lkErr(r); return; }
+    if (st) st.textContent = Z("تم إرسال الرمز إلى بريدك. تحقق من الوارد أو الرسائل غير المرغوبة.", "Code sent. Check your inbox or spam.", "Code sent.", "Code sent.");
+    let n = 60; const tm = setInterval(() => { const bb = $("lksend"); if (!bb) return clearInterval(tm); n--; if (n <= 0) { clearInterval(tm); bb.disabled = false; bb.textContent = Z("إعادة إرسال الرمز", "Resend code", "Resend", "Resend"); } else bb.textContent = Z(`إعادة الإرسال بعد ${n} ث`, `Resend in ${n}s`, `Resend in ${n}s`, `Resend in ${n}s`); }, 1000);
+  }
+  async function lkSubmit(fid) {
+    const b = $("lkgo"); if (!b || b.disabled) return;
+    const em = $("lkem").value.trim().toLowerCase(), tk = $("lktk").value.trim(), cd = $("lkcd").value.replace(/\D/g, "");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { lkErr({ error: "invalid_email" }); return; }
+    if (tk.length < 6 || cd.length != 6) { lkErr({ error: "invalid" }); return; }
+    b.disabled = true; $("xerr").innerHTML = "";
+    const r = await call("link_submit", { farm_id: fid, email: em, farm_token: tk, code: cd });
+    if (!r.ok) { b.disabled = false; lkErr(r); return; }
+    xsheet(`<div class="xdone"><div class="big">📨</div><h2>${Z("تم إرسال طلب الربط", "Link request sent", "Link request sent", "Link request sent")}</h2><div class="xr" style="justify-content:center">${lkChip(r.link.status)}</div><div class="xmut" style="margin-top:8px">${Z("سنُشعرك داخل التطبيق فور اكتمال الربط، وتستطيع متابعة الحالة من الإعدادات ← طلبات ربط المزارع.", "We'll notify you in the app when linking is done. Track it in Settings → Farm link requests.", "We'll notify you.", "We'll notify you.")}</div>
+      <button class="go" style="margin-top:14px" data-x="mylinks"><span>${Z("متابعة الطلب", "Track request", "Track", "Track")}</span></button><button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("close")}</span></button></div>`);
+  }
+  async function drawLinksPage() {
+    subList(Z("طلبات ربط المزارع", "Farm link requests", "Farm link requests", "Farm link requests"), "acct", "xpg");
+    const r = await call("link_list", {}); const el = $("xpg"); if (!r.ok || !el) return;
+    el.innerHTML = r.links.length ? r.links.map((l) => `<div class="xc"><div class="xr sp"><b>${E(l.farm_name)}</b>${lkChip(l.status)}</div><small dir="ltr" style="text-align:start">${E(l.email)}</small><small>${fdate(l.created_at)}</small>${l.note ? `<small>${E(l.note)}</small>` : ""}${l.can_buy ? `<button class="xbtn" style="margin-top:8px" data-x="farmgo:${l.farm_id}:${l.id}">${Z("متابعة الشراء", "Continue purchase", "Continue", "Continue")}</button>` : l.used ? `<small>${Z("تم استخدام هذا الربط في عملية شراء.", "This link was used in a purchase.", "Used in a purchase.", "Used in a purchase.")}</small>` : ""}</div>`).join("") : `<p class="empty">${Z("لا توجد طلبات ربط بعد.", "No link requests yet.", "No link requests yet.", "No link requests yet.")}</p>`;
+  }
   async function purchase(name, body, prizeOf) {
     if (HD.cf && HD.cf.tot > 0 && (!body.currency || body.currency == HD.cur)) body.expect = HD.cf.tot;
     const r = await call(name, body);
@@ -648,7 +715,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       <div id="trow" style="${HD.notif ? "" : "opacity:.45"}">${row(IK.music, xt("tone"), toneName(HD.tone), "tonesheet")}</div></div>
       <div class="sg">${row(IK.head, xt("support"), "", "gosup", HD.sup ? `<span class="sv"><span class="xchip bad">${HD.sup}</span>${chvR}</span>` : "")}
       ${row(IK.bell, xt("alerts"), "", "alerts", HD.unread ? `<span class="sv"><span class="xchip bad">${HD.unread}</span>${chvR}</span>` : "")}
-      ${aiOn() ? row(IK.bot, aiTitle(), "", "aiopen") : ""}${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}</div>
+      ${aiOn() ? row(IK.bot, aiTitle(), "", "aiopen") : ""}${row(IK.home, xt("purchases"), "", "myfarms")}${row(IK.list, xt("myorders"), "", "myorders")}${row(IK.list, Z("طلبات ربط المزارع", "Farm link requests", "Farm link requests", "Farm link requests"), "", "mylinks")}</div>
       <div class="sg">${row(IK.dl, xt("chkupd"), APP_VER, "chkupd")}</div>
       <div class="sg"><button class="sr red" data-x="logoutask"><span class="si">${IK.out}</span><span class="sl">${xt("logout")}</span></button></div>`;
   function drawSettings() { HD.page = null; drawShop(); }
@@ -691,6 +758,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (p == "ai") drawAi();
     else if (p == "myfarms") drawFarmsPage();
     else if (p == "myorders") drawOrdersPage();
+    else if (p == "mylinks") drawLinksPage();
     else if (p == "alerts") drawAlertsPage();
   }
   async function checkUpdate() {
@@ -724,6 +792,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       const prevU = HD.unread || 0;
       HD.unread = r.unread;
       if (r.unread > prevU && HD.page == "alerts" && $("xpg")) drawAlertsPage();
+      if (r.unread > prevU && HD.page == "mylinks" && $("xpg")) drawLinksPage();
       if (r.last_id && r.last_id > HD.lastN) {
         if (HD.lastN && HD.notif) { toast(L == "ar" ? r.title : r.title_en || r.title); playTone(HD.tone); }
         HD.lastN = r.last_id; LSs("lastn", r.last_id);
@@ -890,7 +959,13 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "nwref") nwLoad(true);
     else if (a == "nwopen") nwOpen(i);
     else if (a == "evtab") { HD.evTab = i; evDraw(); }
-    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) xconfirm({ title: f.name, img: f.image || FARM_FB, lines: xt("farmnote"), usdt: f.price, pr: { prices: f.prices, n: 1 }, run: (cur, key) => purchase("farm_buy", { id: f.id, currency: cur, idem_key: key }) }); }
+    else if (a == "farmbuy") { const f = HD.farms.find((x) => x.id == i); if (f) farmChoose(f); }
+    else if (a == "farmtest") { const f = HD.farms.find((x) => x.id == i); if (f) farmConfirm(f, 0); }
+    else if (a == "farmgo") farmGo(+i, +d);
+    else if (a == "farmlink") { const f = HD.farms.find((x) => x.id == i); if (f) drawLinkForm(f); }
+    else if (a == "lksend") lkSend();
+    else if (a == "lksubmit") lkSubmit(+i);
+    else if (a == "mylinks") { closeX(); opt = false; axe = false; tab = 5; HD.page = "mylinks"; drawShop(); scrollTo(0, 0); }
     else if (a == "cq") { const c = HD.codes.find((x) => x.id == i); if (c) { HD.cq[i] = Math.max(1, Math.min(10, c.stock, (HD.cq[i] || 1) + +d)); openCodes(); } }
     else if (a == "codebuy") { const c = HD.codes.find((x) => x.id == i), n = Math.min(HD.cq[i] || 1, c.stock); if (c) xconfirm({ title: `${c.name} × ${n}`, usdt: c.price * n, pr: { prices: c.prices, n }, run: (cur, key) => purchase("code_buy", { id: c.id, qty: n, currency: cur, idem_key: key }) }); }
     else if (a == "boxbuy") { const bx = HD.boxes.find((x) => x.id == i); if (bx) xconfirm({ title: bx.name, lines: Z("الجائزة تُحدَّد عشوائيًا من الخادم.", "The prize is picked randomly by the server.", "Phần thưởng được máy chủ chọn ngẫu nhiên.", "奖品由服务器随机抽取。"), usdt: bx.price, pr: { prices: bx.prices, n: 1 }, run: (cur, key) => purchase("random_buy", { id: bx.id, currency: cur, idem_key: key }, (o) => (o.lines && o.lines[0] && o.lines[0].prize) || "") }); }
