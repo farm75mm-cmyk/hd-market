@@ -53,6 +53,9 @@ await run(`CREATE TABLE IF NOT EXISTS random_prizes (id ${serial}, box_id BIGINT
 await run(`CREATE TABLE IF NOT EXISTS opt_items (id INT PRIMARY KEY, name TEXT NOT NULL, level INT NOT NULL DEFAULT 0, building TEXT NOT NULL DEFAULT '', price DOUBLE PRECISION, active INT NOT NULL DEFAULT 1)`);
 await run(`CREATE TABLE IF NOT EXISTS announcements (id ${serial}, title TEXT NOT NULL, body TEXT NOT NULL, image TEXT, pinned INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
 for (const tb of ["categories", "products", "farms", "random_boxes"]) await alter(`ALTER TABLE ${tb} ADD COLUMN cap TEXT NOT NULL DEFAULT ''`);
+await run(`CREATE TABLE IF NOT EXISTS farm_sections (id ${serial}, name TEXT NOT NULL, name_en TEXT NOT NULL DEFAULT '', descr TEXT NOT NULL DEFAULT '', image TEXT, sort INT NOT NULL DEFAULT 0, active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`);
+await alter(`ALTER TABLE farms ADD COLUMN section_id BIGINT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE farms ADD COLUMN fsort INT NOT NULL DEFAULT 0`);
 await alter(`ALTER TABLE farms ADD COLUMN qty INT NOT NULL DEFAULT 1`);
 await alter(`ALTER TABLE farms ADD COLUMN show_qty INT NOT NULL DEFAULT 0`);
 await alter(`ALTER TABLE farms ADD COLUMN barn INT NOT NULL DEFAULT 0`);
@@ -94,7 +97,7 @@ export function imgUrl(kind: string, r: Row): string | null {
   if (ref.startsWith("http")) return ref;
   return `${API_ORIGIN}/img/${kind}/${r.id}?v=${vOf(r)}`;
 }
-const IMG_TABLES: Record<string, [string, string]> = { c: ["categories", "image"], p: ["products", "image"], f: ["farms", "image"], b: ["random_boxes", "image"], m: ["payment_methods", "icon"], g: ["hd_groups", "image"], n: ["announcements", "image"], e: ["hd_events", "image"], w: ["hd_news", "image"] };
+const IMG_TABLES: Record<string, [string, string]> = { c: ["categories", "image"], p: ["products", "image"], f: ["farms", "image"], b: ["random_boxes", "image"], m: ["payment_methods", "icon"], g: ["hd_groups", "image"], n: ["announcements", "image"], e: ["hd_events", "image"], w: ["hd_news", "image"], s: ["farm_sections", "image"] };
 const IMG_LRU = new Map<string, { b: Uint8Array; ct: string }>();
 export async function imgResponse(kind: string, id: number, ver = ""): Promise<Response> {
   const ck = ver ? `${kind}:${id}:${ver}` : "";
@@ -212,9 +215,16 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     return ok({ price, items: rows.map((r) => ({ id: num(r.id), n: r.name, l: num(r.level), b: r.building, p: r.price == null ? price : num(r.price), img: `${WEB_ORIGIN}/img/food/f${String(num(r.id)).padStart(3, "0")}.webp` })) });
   },
   async farms() {
-    const rows = await run(`SELECT id, name, descr, cap, level, price, qty, show_qty, barn, silo, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY id DESC`);
+    const rows = await run(`SELECT id, name, descr, cap, level, price, qty, show_qty, barn, silo, section_id, ${IMG()} FROM farms WHERE active = 1 AND sold = 0 ORDER BY fsort, id DESC`);
     const fp = await getItemPrices("farm", rows.map((f) => num(f.id)));
-    return ok({ farms: rows.map((f) => ({ barn: num(f.barn), silo: num(f.silo), prices: fp.get(num(f.id)) ?? {}, avail: num(f.show_qty) > 0 ? num(f.show_qty) : num(f.qty), id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f) })) });
+    const secs = await run(`SELECT id, name, name_en, descr, ${IMG()} FROM farm_sections WHERE active = 1 ORDER BY sort, id`);
+    const allSecs = num((await first(`SELECT COUNT(*) c FROM farm_sections`))?.c);
+    const live = new Set(secs.map((x) => num(x.id)));
+    // sections are optional: with none defined the app keeps the old flat list; farms without a (visible) section never disappear
+    const farms = rows.filter((f) => !allSecs || live.has(num(f.section_id)) || !num(f.section_id))
+      .map((f) => ({ barn: num(f.barn), silo: num(f.silo), prices: fp.get(num(f.id)) ?? {}, avail: num(f.show_qty) > 0 ? num(f.show_qty) : num(f.qty), id: num(f.id), name: f.name, descr: f.descr ?? "", level: num(f.level), price: num(f.price), cap: f.cap ?? "", image: imgUrl("f", f), section_id: live.has(num(f.section_id)) ? num(f.section_id) : 0 }));
+    const sections = allSecs ? secs.map((x) => ({ id: num(x.id), name: x.name, name_en: x.name_en ?? "", descr: x.descr ?? "", image: imgUrl("s", x), count: farms.filter((f) => f.section_id === num(x.id)).length })) : [];
+    return ok({ farms, sections, other: farms.filter((f) => !f.section_id).length });
   },
   async codes() {
     const rows = await run(`SELECT p.id, p.name, p.descr, p.cap, p.price, ${IMG("image", "p.")}, (SELECT COUNT(*) FROM sub_codes s WHERE s.product_id = p.id AND s.status = 'available') stock FROM products p WHERE p.kind = 'code' AND p.active = 1 ORDER BY p.id`);

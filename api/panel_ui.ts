@@ -50,13 +50,13 @@ export type NavItem = [string, string, string]; // [tab, icon, label]
 export const NAV: { title?: string; items: NavItem[] }[] = [
   { items: [["farm_orders", "bag", "طلبات المزارع"], ["farm_delivery", "truck", "إدارة تسليم المزارع"], ["tool_orders", "list", "طلبات الأدوات والمنتجات"], ["opt_orders", "box", "طلبات منتجات اختياري"], ["codes", "key", "أكواد الاشتراك وطلباتها"]] },
   { title: "المدفوعات والمحفظة", items: [["deposits", "wallet", "طلبات الشحن"], ["methods", "card", "طرق الدفع"], ["rates", "chart", "أسعار العملات"], ["ledger", "shield", "سجل المحفظة الآمن"], ["deposit_history", "clock", "الإيداعات (السابقة)"]] },
-  { title: "المتجر والمنتجات", items: [["categories", "store", "أقسام المتجر والأدوات"], ["farms", "home", "المزارع"], ["farm_data", "key", "بيانات المزارع (ID / Token)"], ["opt_prices", "tag", "منتجات اختياري – الأسعار"], ["random", "box", "المنتجات العشوائية"]] },
+  { title: "المتجر والمنتجات", items: [["categories", "store", "أقسام المتجر والأدوات"], ["farm_sections", "home", "إدارة أقسام المزارع"], ["farms", "home", "المزارع"], ["farm_data", "key", "بيانات المزارع (ID / Token)"], ["opt_prices", "tag", "منتجات اختياري – الأسعار"], ["random", "box", "المنتجات العشوائية"]] },
   { title: "العملاء والتواصل", items: [["users", "users", "المستخدمون والأرصدة"], ["support", "headset", "دعم العملاء"], ["groups", "chat", "المجموعات"], ["announcements", "bell", "الإعلانات"], ["news", "file", "أخبار Hay Day"], ["events", "clock", "أحداث Hay Day"], ["push", "bell", "إرسال إشعار التحديث"], ["ai", "chat", "إدارة المساعد الذكي"]] },
   { title: "النظام", items: [["settings", "sliders", "الإعدادات والصيانة"], ["audit", "file", "سجل الإجراءات"], ["admins", "shield", "إدارة مسؤولي لوحة التحكم"]] },
 ];
 export const TAB_LABEL: Record<string, string> = Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i[0], i[2]])));
 const TAB_ICON: Record<string, [string, number]> = {};
-let k = 0; for (const g of NAV) for (const i of g.items) TAB_ICON[i[0]] = [i[1], k++];
+let k = 0; for (const g of NAV) for (const i of g.items) TAB_ICON[i[0]] = [i[1], i[0] === "farm_sections" ? 3 : k++];
 export const tabTile = (tab: string, size = 52) => tile(TAB_ICON[tab]?.[1] ?? 0, TAB_ICON[tab]?.[0] ?? "list", size);
 
 const FLAG_UK = `<svg width="26" height="18" viewBox="0 0 60 40" aria-hidden="true"><clipPath id="u"><path d="M0 0h60v40H0z"/></clipPath><g clip-path="url(#u)"><path d="M0 0v40h60V0z" fill="#012169"/><path d="m0 0 60 40m0-40L0 40" stroke="#fff" stroke-width="8"/><path d="m0 0 60 40m0-40L0 40" stroke="#C8102E" stroke-width="4"/><path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="13"/><path d="M30 0v40M0 20h60" stroke="#C8102E" stroke-width="8"/></g></svg>`;

@@ -278,13 +278,70 @@ document.addEventListener("pointerup",end);document.addEventListener("pointercan
 async function farmsPage(ctx: Ctx): Promise<Page> {
   const PXF = await allPrices("farm");
   const { t, F, hid } = ctx;
-  const form = (f: any) => F("farm_save", `${f ? hid("id", f.id) : ""}${field(t("اسم الصورة (يظهر أسفل الصورة في التطبيق)"), `<input type="text" class="w" name="cap" maxlength="80" value="${h(f?.cap ?? "")}" placeholder="${h(t("مثال: كواد"))}">`)}${prFields(t, PXF.get(num(f?.id)), "")}<div class="fg">${field(t("سعة الحظيرة (Barn)"), `<input type="number" class="w" min="0" step="1" name="barn" inputmode="numeric" value="${f ? num(f.barn) : 0}">`)}${field(t("سعة الصومعة (Silo)"), `<input type="number" class="w" min="0" step="1" name="silo" inputmode="numeric" value="${f ? num(f.silo) : 0}">`)}</div><div class="fg">${field(t("عدد المزارع المتاحة للبيع"), `<input type="number" class="w" min="0" step="1" name="qty" inputmode="numeric" value="${f ? num(f.qty) : 1}">`)}${field(t("العدد المعروض في المتجر (اتركه 0 لعرض العدد الحقيقي)"), `<input type="number" class="w" min="0" step="1" name="show_qty" inputmode="numeric" value="${f ? num(f.show_qty) : 0}">`)}</div><div class="fg">${field(t("اسم المزرعة"), `<input type="text" class="w" name="name" value="${h(f?.name ?? "")}" required>`)}${field(t("المستوى"), `<input type="number" class="w" min="0" name="level" value="${f ? num(f.level) : ""}">`)}${field(t("السعر (USDT)"), `<input type="number" class="w" step="any" min="0" name="price" value="${f ? num(f.price) : ""}">`)}</div>${field(t("وصف المزرعة (المستوى، المباني، الخ)"), `<textarea name="descr">${h(f?.descr ?? "")}</textarea>`)}<div class="row" style="margin-top:10px">${sw("active", t("ظاهرة للمستخدمين"), !f || !!num(f.active))}${picker(f ? imgUrl("f", f) : null)}${f && imgUrl("f", f) ? `<label class="row" style="gap:6px"><input type="checkbox" name="noimg" value="1"> ${h(t("إزالة الصورة"))}</label>` : ""}<button class="${f ? "" : "y"}">${h(t(f ? "حفظ" : "إضافة"))}</button></div>`);
+  const secs = await run(`SELECT id, name FROM farm_sections ORDER BY sort, id`), defSec = Number(ctx.url.searchParams.get("sec")) || 0;
+  const secFields = (f: any) => `<div class="fg">${field(t("القسم"), `<select class="w" name="section_id"><option value="0">${h(t("بدون قسم"))}</option>${secs.map((x: any) => `<option value="${x.id}"${num(f ? f.section_id : defSec) === num(x.id) ? " selected" : ""}>${h(x.name)}</option>`).join("")}</select>`)}${field(t("ترتيب المزرعة داخل القسم (الأصغر أولًا)"), `<input type="number" class="w" min="0" step="1" name="fsort" inputmode="numeric" value="${f ? num(f.fsort) : 0}">`)}</div>`;
+  const form = (f: any) => F("farm_save", `${f ? hid("id", f.id) : ""}${secFields(f)}${field(t("اسم الصورة (يظهر أسفل الصورة في التطبيق)"), `<input type="text" class="w" name="cap" maxlength="80" value="${h(f?.cap ?? "")}" placeholder="${h(t("مثال: كواد"))}">`)}${prFields(t, PXF.get(num(f?.id)), "")}<div class="fg">${field(t("سعة الحظيرة (Barn)"), `<input type="number" class="w" min="0" step="1" name="barn" inputmode="numeric" value="${f ? num(f.barn) : 0}">`)}${field(t("سعة الصومعة (Silo)"), `<input type="number" class="w" min="0" step="1" name="silo" inputmode="numeric" value="${f ? num(f.silo) : 0}">`)}</div><div class="fg">${field(t("عدد المزارع المتاحة للبيع"), `<input type="number" class="w" min="0" step="1" name="qty" inputmode="numeric" value="${f ? num(f.qty) : 1}">`)}${field(t("العدد المعروض في المتجر (اتركه 0 لعرض العدد الحقيقي)"), `<input type="number" class="w" min="0" step="1" name="show_qty" inputmode="numeric" value="${f ? num(f.show_qty) : 0}">`)}</div><div class="fg">${field(t("اسم المزرعة"), `<input type="text" class="w" name="name" value="${h(f?.name ?? "")}" required>`)}${field(t("المستوى"), `<input type="number" class="w" min="0" name="level" value="${f ? num(f.level) : ""}">`)}${field(t("السعر (USDT)"), `<input type="number" class="w" step="any" min="0" name="price" value="${f ? num(f.price) : ""}">`)}</div>${field(t("وصف المزرعة (المستوى، المباني، الخ)"), `<textarea name="descr">${h(f?.descr ?? "")}</textarea>`)}<div class="row" style="margin-top:10px">${sw("active", t("ظاهرة للمستخدمين"), !f || !!num(f.active))}${picker(f ? imgUrl("f", f) : null)}${f && imgUrl("f", f) ? `<label class="row" style="gap:6px"><input type="checkbox" name="noimg" value="1"> ${h(t("إزالة الصورة"))}</label>` : ""}<button class="${f ? "" : "y"}">${h(t(f ? "حفظ" : "إضافة"))}</button></div>`);
   let out = `<div class="box"><h2>${h(t("إضافة مزرعة"))}</h2>${form(null)}</div>`;
-  for (const f of await run(`SELECT id, name, descr, cap, qty, show_qty, barn, silo, level, price, active, sold, buyer_id, ${IMG()} FROM farms ORDER BY id DESC LIMIT 200`)) {
+  for (const f of await run(`SELECT id, name, descr, cap, qty, show_qty, barn, silo, level, price, active, sold, buyer_id, section_id, fsort, ${IMG()} FROM farms ORDER BY id DESC LIMIT 200`)) {
     const buyer = num(f.sold) ? await first(`SELECT username FROM users WHERE id = $1`, [f.buyer_id]) : null;
-    out += `<div class="item"><div class="row" style="margin-bottom:8px">${num(f.sold) ? statusChip("done", `${t("مباعة")}: ${buyer?.username ?? f.buyer_id}`) : statusChip(num(f.active) ? "ok" : "bad", t(num(f.active) ? "متاحة" : "مخفية"))}</div>${form(f)}<div class="acts">${F("farm_del", `${hid("id", f.id)}<button class="r s" onclick="return confirm('${h(t("حذف المزرعة؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`;
+    out += `<div class="item" id="f${f.id}"><div class="row" style="margin-bottom:8px">${num(f.sold) ? statusChip("done", `${t("مباعة")}: ${buyer?.username ?? f.buyer_id}`) : statusChip(num(f.active) ? "ok" : "bad", t(num(f.active) ? "متاحة" : "مخفية"))}</div>${form(f)}<div class="acts">${F("farm_del", `${hid("id", f.id)}<button class="r s" onclick="return confirm('${h(t("حذف المزرعة؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`;
   }
   return { title: t("المزارع"), body: out, js: PICK_JS };
+}
+async function farmSectionsPage(ctx: Ctx): Promise<Page> {
+  const { t, F, hid, url } = ctx;
+  const secId = url.searchParams.get("sec") === "0" ? 0 : Number(url.searchParams.get("sec")) || -1;
+  const secs = await run(`SELECT id, name, name_en, descr, sort, active, ${IMG()} FROM farm_sections ORDER BY sort, id`);
+  const counts = new Map<number, number>(); for (const r of await run(`SELECT section_id, COUNT(*) c FROM farms GROUP BY section_id`)) counts.set(num(r.section_id), num(r.c));
+  const known = new Set(secs.map((x: any) => num(x.id))); let orphan = 0; for (const [k, c] of counts) if (!known.has(k)) orphan += c;
+  const shJs = `<script>document.addEventListener("click",function(e){var a=e.target.closest("[data-sh]");if(a){e.preventDefault();document.getElementById(a.dataset.sh).hidden=false;document.body.style.overflow="hidden";return}if(e.target.dataset&&e.target.dataset.close){var w=e.target.closest(".shw");w.hidden=true;document.body.style.overflow=""}});</script>`;
+  const css = `<style>.sr2{display:flex;align-items:center;gap:6px;border-bottom:1px solid #eceef5;background:#fff;padding-inline-end:10px}.sr2:last-child{border-bottom:0}.sr2 .lr{flex:1;min-width:0;border:0}.sr2 form{margin:0}.mv{padding:6px 10px;font-size:15px;border-radius:10px}.sr2 .ed{padding:8px 12px;font-size:13px}</style>`;
+  const sheet = (c: any) => {
+    const img = c ? imgUrl("s", c) : null;
+    const form = F("fsec_save", `${c ? hid("id", c.id) : ""}<input type="hidden" name="remove_image" value="">
+      <label class="bigimg"><img class="th" ${img ? `src="${h(img)}"` : 'style="visibility:hidden"'} alt=""><span class="cam">${ic("camera", 20)}</span><input type="hidden" name="image" value=""><input class="pick" type="file" accept="image/*" hidden></label>
+      <p class="hint" style="text-align:right">${h(t("صورة القسم: اضغط عليها لرفع صورة من جهازك (تُضغط تلقائيًا لتحميل أسرع)"))}</p>
+      <button type="button" class="gb" onclick="var f=this.form;f.remove_image.value=1;f.image.value='';f.querySelector('img.th').style.visibility='hidden'">${h(t("إزالة الصورة"))} ${ic("trash", 18)}</button>
+      ${field(t("اسم القسم"), `<input type="text" class="w" name="name" maxlength="60" value="${h(c?.name ?? "")}" required>`)}
+      ${field(t("الاسم بالإنجليزية (اختياري)"), `<input type="text" class="w" name="name_en" maxlength="60" value="${h(c?.name_en ?? "")}" dir="ltr" style="text-align:left">`)}
+      ${field(t("وصف القسم (اختياري)"), `<textarea class="w" name="descr" rows="3" maxlength="500">${h(c?.descr ?? "")}</textarea>`)}
+      ${field(t("ترتيب القسم (الأصغر يظهر أولًا)"), `<input type="number" class="w" min="1" step="1" name="sort" inputmode="numeric" value="${c ? num(c.sort) : secs.length + 1}">`)}
+      <label class="tgr"><span>${h(t("ظاهر في التطبيق"))}</span><input class="tg" type="checkbox" name="active" value="1"${!c || num(c.active) ? " checked" : ""}></label>
+      <button class="k">${h(t("حفظ"))}</button>`, "");
+    const del = c ? F("fsec_del", `${hid("id", c.id)}<button class="gb rd" onclick="return confirm('${h(t("حذف القسم؟ ستبقى مزارعه محفوظة وتنتقل إلى «بدون قسم»."))}')">${h(t("حذف القسم"))} ${ic("trash", 18)}</button>`, "") : "";
+    return `<div class="shw" id="fs_${c ? c.id : "new"}" hidden><div class="shb" data-close="1"></div><div class="shs"><i class="grip"></i><h2>${h(c ? c.name : t("إضافة قسم"))}</h2>${form}${del}</div></div>`;
+  };
+  if (secId >= 0) {
+    const sec = secs.find((x: any) => num(x.id) === secId);
+    if (secId > 0 && !sec) return { title: t("إدارة أقسام المزارع"), body: `<p class="hint">${h(t("القسم غير موجود."))}</p>` };
+    const where = secId > 0 ? `section_id = ${secId}` : `(section_id = 0 OR section_id NOT IN (SELECT id FROM farm_sections))`;
+    const farms = await run(`SELECT id, name, level, price, active, sold, fsort, section_id, cap, ${IMG()} FROM farms WHERE ${where} ORDER BY fsort, id DESC LIMIT 300`);
+    const ex = `&sec=${secId}`;
+    let list = "";
+    for (const f of farms) {
+      const img = imgUrl("f", f);
+      list += `<div class="item" style="${num(f.active) ? "" : "opacity:.75"}"><div class="hd">${img ? `<img class="th" src="${h(img)}" alt="">` : `<span class="th" style="display:grid;place-items:center">🌾</span>`}<div><b>${h(f.name)}</b><div class="sm">Lv ${num(f.level)} · <span dir="ltr">${usdtFmt(num(f.price))} USDT</span></div>
+        <div class="row" style="margin-top:6px">${num(f.sold) ? statusChip("done", t("مباعة")) : statusChip(num(f.active) ? "ok" : "bad", t(num(f.active) ? "ظاهرة" : "مخفية"))}</div></div></div>
+        <div class="acts">${F("farm_sort", `${hid("id", f.id)}<input type="number" name="fsort" min="0" step="1" value="${num(f.fsort)}" style="width:72px;padding:8px" title="${h(t("الترتيب"))}"><button class="g s">${h(t("ترتيب"))}</button>`, ex)}
+        ${F("farm_move", `${hid("id", f.id)}<select name="section_id" onchange="this.form.submit()" style="padding:8px"><option value="" disabled selected>${h(t("نقل إلى قسم…"))}</option><option value="0">${h(t("بدون قسم"))}</option>${secs.filter((x: any) => num(x.id) !== num(f.section_id)).map((x: any) => `<option value="${x.id}">${h(x.name)}</option>`).join("")}</select>`, ex)}
+        ${F("farm_toggle", `${hid("id", f.id)}<button class="g s">${num(f.active) ? "⛔ " + h(t("إخفاء")) : "✅ " + h(t("إظهار"))}</button>`, ex)}
+        <a class="btn g s" href="/admin?tab=farms#f${f.id}">✏️ ${h(t("تعديل البيانات والصورة والسعر"))}</a>
+        ${F("farm_del", `${hid("id", f.id)}<button class="r s" onclick="return confirm('${h(t("حذف المزرعة؟"))}')">${h(t("حذف"))}</button>`, ex)}</div></div>`;
+    }
+    const title = sec ? sec.name : t("بدون قسم");
+    return { title: t("إدارة أقسام المزارع"), body: `${css}<div class="lh"><a class="bk" href="/admin?tab=farm_sections" aria-label="back">${ic("chevR", 22)}</a><h2>${h(title)}</h2>${secId > 0 ? `<a class="plus" href="/admin?tab=farms&sec=${secId}" aria-label="add" title="${h(t("إضافة مزرعة إلى هذا القسم"))}">${ic("plus", 26)}</a>` : ""}</div>
+      <p class="hint">${h(t("هذه مزارع القسم بالترتيب الذي تظهر به في التطبيق. لإضافة مزرعة جديدة إلى القسم اضغط +."))}</p>${list || `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد مزارع في هذا القسم."))}</div>`}`, js: PICK_JS };
+  }
+  let rows = "", sheets = sheet(null);
+  for (const [i, c] of secs.entries()) {
+    const img = imgUrl("s", c), n = counts.get(num(c.id)) ?? 0;
+    rows += `<div class="sr2">${F("fsec_move", `${hid("id", c.id)}<input type="hidden" name="dir" value="up"><button class="g mv"${i === 0 ? " disabled" : ""} aria-label="up">▲</button>`, "")}${F("fsec_move", `${hid("id", c.id)}<input type="hidden" name="dir" value="down"><button class="g mv"${i === secs.length - 1 ? " disabled" : ""} aria-label="down">▼</button>`, "")}<a class="lr" href="/admin?tab=farm_sections&sec=${c.id}">${img ? `<img class="li" src="${h(img)}" alt="">` : `<span class="li">${tabTile("farm_sections", 62)}</span>`}<span class="lt"><b>${h(c.name)}</b><small>${n} ${h(t("مزرعة"))}${num(c.active) ? "" : " · " + h(t("مخفي"))}</small></span>${ic("chevL", 20)}</a>${F("fsec_toggle", `${hid("id", c.id)}<input class="tg" type="checkbox"${num(c.active) ? " checked" : ""} aria-label="visible" onchange="this.form.submit()">`, "")}<a class="btn g s ed" href="#" data-sh="fs_${c.id}">✏️</a></div>`;
+    sheets += sheet(c);
+  }
+  if (orphan) rows += `<div class="sr2"><a class="lr" href="/admin?tab=farm_sections&sec=0"><span class="li">${tabTile("farms", 62)}</span><span class="lt"><b>${h(t("بدون قسم"))}</b><small>${orphan} ${h(t("مزرعة"))}</small></span>${ic("chevL", 20)}</a></div>`;
+  return { title: t("إدارة أقسام المزارع"), body: `${css}<div class="lh"><h2>${h(t("أقسام المزارع"))}</h2><a class="plus" href="#" data-sh="fs_new" aria-label="add">${ic("plus", 26)}</a></div>
+    <p class="hint">${h(t("أنشئ الأقسام هنا (صورة واسم ووصف وترتيب)، ثم افتح القسم لإدارة مزارعه. تظهر كل التغييرات في قسم «المزارع» داخل التطبيق تلقائيًا. إن لم تُنشئ أي قسم تبقى المزارع تُعرض كقائمة واحدة كما هي."))}</p>
+    ${rows ? `<div class="lc">${rows}</div>` : `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد أقسام بعد. اضغط + لإضافة أول قسم."))}</div>`}${sheets}`, js: PICK_JS + shJs };
 }
 async function farmDataPage(ctx: Ctx): Promise<Page> {
   const { t, F, hid } = ctx;
@@ -491,6 +548,7 @@ export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
     case "ledger": return ledgerPage(ctx);
     case "audit": return auditPage(ctx);
     case "categories": return categoriesPage(ctx);
+    case "farm_sections": return farmSectionsPage(ctx);
     case "farms": return farmsPage(ctx);
     case "farm_data": return farmDataPage(ctx);
     case "opt_prices": return optPricesPage(ctx);

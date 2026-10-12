@@ -45,6 +45,7 @@ export async function adminAct(act: string, f0: F, visibleForm: Record<string, s
         if ("cap" in visibleForm) await run(`UPDATE ${tb} SET cap = $1 WHERE id = $2`, [f("cap").trim().slice(0, 80), id]);
         const pv: Record<string, string> = {}; for (const c of CURRENCIES) if (("pr_" + c) in visibleForm) pv[c] = f("pr_" + c);
         if (Object.keys(pv).length) await setItemPrices(ct[2], id, pv);
+        if (act === "farm_save" && "section_id" in visibleForm) await run(`UPDATE farms SET section_id = $1, fsort = $2 WHERE id = $3`, [Math.max(0, Math.floor(Number(f("section_id"))) || 0), Math.max(0, Math.floor(Number(f("fsort"))) || 0), id]);
         if (act === "farm_save" && "qty" in visibleForm) {
           const q = Math.max(0, Math.floor(Number(f("qty"))) || 0), sq = Math.max(0, Math.floor(Number(f("show_qty"))) || 0);
           await run(`UPDATE farms SET qty = $1, show_qty = $2, sold = CASE WHEN $1 > 0 THEN 0 ELSE 1 END WHERE id = $3`, [q, sq, id]);
@@ -55,6 +56,7 @@ export async function adminAct(act: string, f0: F, visibleForm: Record<string, s
   }
   return msg;
 }
+async function normSecSort() { const all = await run(`SELECT id FROM farm_sections ORDER BY sort, id`); let i = 0; for (const x of all) await run(`UPDATE farm_sections SET sort = $1 WHERE id = $2`, [++i, Number(x.id)]); }
 async function adminAct0(act: string, f: F, visibleForm: Record<string, string>): Promise<string> {
   const id = Number(f("id")), t = nowS();
   if (act.startsWith("admin_") && !isOwner()) return "هذا الإجراء للمالك فقط";
@@ -153,6 +155,31 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
       const has = await first(`SELECT image IS NOT NULL h FROM farms WHERE id = $1`, [fid]);
       return num(has?.h) || has?.h === true ? "تم حفظ المزرعة (الصورة السابقة كما هي)" : "تم حفظ المزرعة بدون صورة — ستظهر صورة افتراضية في التطبيق";
     }
+    case "fsec_save": {
+      const name = f("name").trim().slice(0, 60); if (!name) return "اسم القسم مطلوب";
+      const nameEn = f("name_en").trim().slice(0, 60), descr = f("descr").trim().slice(0, 500), active = bool(f("active"));
+      const mx = Number((await first(`SELECT COALESCE(MAX(sort),0) m FROM farm_sections`))?.m ?? 0), sort = Math.max(1, Math.floor(Number(f("sort"))) || mx + 1);
+      let sid = id;
+      if (id > 0) {
+        await run(`UPDATE farm_sections SET name=$1, name_en=$2, descr=$3, active=$4, sort=$5 WHERE id=$6`, [name, nameEn, descr, active, sort, id]);
+        if (img) await run(`UPDATE farm_sections SET image=$1 WHERE id=$2`, [img, id]); else if (f("remove_image") === "1") await run(`UPDATE farm_sections SET image=NULL WHERE id=$1`, [id]);
+      } else sid = Number((await run(`INSERT INTO farm_sections (name, name_en, descr, image, sort, active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [name, nameEn, descr, img || null, sort, active, t]))[0]?.id ?? 0);
+      if (img) { const chk = await first(`SELECT length(image) l FROM farm_sections WHERE id = $1`, [sid]); if (num(chk?.l) !== img.length) return "تم حفظ القسم لكن فشل حفظ الصورة. حاول بصورة أصغر."; }
+      await normSecSort();
+      return img ? "تم حفظ القسم ورفع صورته بنجاح ✓" : "تم حفظ القسم";
+    }
+    case "fsec_del": { await run(`UPDATE farms SET section_id = 0 WHERE section_id = $1`, [id]); await run(`DELETE FROM farm_sections WHERE id = $1`, [id]); await normSecSort(); return "تم حذف القسم (مزارعه محفوظة ضمن «بدون قسم»)"; }
+    case "fsec_toggle": { const r = await first(`SELECT active FROM farm_sections WHERE id = $1`, [id]); if (!r) return "غير موجود"; await run(`UPDATE farm_sections SET active = $1 WHERE id = $2`, [num(r.active) ? 0 : 1, id]); return num(r.active) ? "تم إخفاء القسم" : "تم إظهار القسم"; }
+    case "fsec_move": {
+      await normSecSort();
+      const all = await run(`SELECT id FROM farm_sections ORDER BY sort, id`), i = all.findIndex((x) => Number(x.id) === id), j = f("dir") === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= all.length) return "لا يمكن النقل أكثر";
+      await run(`UPDATE farm_sections SET sort = $1 WHERE id = $2`, [j + 1, id]); await run(`UPDATE farm_sections SET sort = $1 WHERE id = $2`, [i + 1, Number(all[j].id)]);
+      return "تم تغيير الترتيب";
+    }
+    case "farm_move": { const sid = Number(f("section_id")) || 0; if (sid > 0 && !(await first(`SELECT id FROM farm_sections WHERE id = $1`, [sid]))) return "القسم غير موجود"; await run(`UPDATE farms SET section_id = $1 WHERE id = $2`, [sid, id]); return "تم نقل المزرعة"; }
+    case "farm_toggle": { const r = await first(`SELECT active FROM farms WHERE id = $1`, [id]); if (!r) return "غير موجودة"; await run(`UPDATE farms SET active = $1 WHERE id = $2`, [num(r.active) ? 0 : 1, id]); return num(r.active) ? "تم إخفاء المزرعة (بياناتها محفوظة)" : "تم إظهار المزرعة"; }
+    case "farm_sort": await run(`UPDATE farms SET fsort = $1 WHERE id = $2`, [Math.max(0, Math.floor(Number(f("fsort"))) || 0), id]); return "تم حفظ الترتيب";
     case "farm_del": {
       const fm = await first(`SELECT sold FROM farms WHERE id = $1`, [id]);
       if (!fm) return "غير موجودة";
