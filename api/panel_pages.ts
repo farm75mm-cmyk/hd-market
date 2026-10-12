@@ -39,13 +39,13 @@ async function ordersList(ctx: Ctx, where: string, params: any[], opts: { delive
     const tagHtml = o.farm_tag ? `<div class="sm" dir="ltr" style="text-align:right"><b>Tag:</b> #${h(o.farm_tag)} · ${h(t("سعة المخزن"))}: ${num(o.farm_cap)}</div>` : "";
     let typeHtml = "";
     if (o.kind === "farm") {
-      const lk = await first(`SELECT id, email FROM farm_links WHERE order_id = $1`, [o.id]);
-      typeHtml = lk ? `<div class="sm" dir="ltr" style="text-align:right;margin-top:6px">${statusChip("done", t("مزرعة مربوطة بالبريد"))} <b>${h(lk.email)}</b> · <a href="/admin?tab=farm_links&q=${encodeURIComponent(lk.email)}">${h(t("طلب الربط"))} #${num(lk.id)}</a></div>` : `<div class="sm" style="margin-top:6px">${statusChip("new", t("مزرعة تجريبية (Test Farm)"))}</div>`;
+      const lk = await first(`SELECT id, email, token FROM farm_links WHERE order_id = $1`, [o.id]);
+      typeHtml = lk ? `<div class="sm" dir="ltr" style="text-align:right;margin-top:6px">${statusChip("done", t("مزرعة مربوطة بالبريد"))} <b>${h(lk.email)}</b> · <a href="/admin?tab=farm_links&q=${encodeURIComponent(lk.email)}">${h(t("طلب الربط"))} #${num(lk.id)}</a></div<details style="margin-top:6px"><summary>${h(t("عرض التوكن (حساس)"))}</summary><div class="mono sm" dir="ltr" style="background:#f5f6fa;border-radius:10px;padding:8px 10px;margin-top:6px;word-break:break-all">${h(lk.token)}</div></details>` : `<div class="sm" style="margin-top:6px">${statusChip("new", t("مزرعة تجريبية (Test Farm)"))}</div>`;
     }
     const lineHtml = typeHtml + tagHtml + (lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "");
     const act: string[] = [];
     if (pending) {
-      if (o.kind === "farm" || o.kind === "random") act.push(F("order_deliver", `${hid("id", o.id)}<div class="row"><input type="text" name="note" placeholder="${h(t("ملاحظة للمشتري (اختياري)"))}" style="min-width:150px"><button class="y">${h(t("تسليم"))}</button></div>`, `&st=${h(ctx.url.searchParams.get("st") ?? "")}`));
+      if (o.kind === "farm" || o.kind === "random") act.push(F("order_deliver", `${hid("id", o.id)}<div class="row"><input type="text" name="note" placeholder="${h(t("ملاحظة للمشتري (اختياري)"))}" style="min-width:150px"><button class="y">${h(t(o.kind === "farm" ? "تم التسليم" : "تسليم"))}</button></div>`, `&st=${h(ctx.url.searchParams.get("st") ?? "")}`));
       if (o.kind !== "code") {
         act.push(F("order_status", `${hid("id", o.id)}${hid("status", o.status === "new" ? "processing" : "done")}<button class="g">${h(t(o.status === "new" ? "قيد التنفيذ" : "تم الإنجاز"))}</button>`));
         act.push(F("order_status", `${hid("id", o.id)}${hid("status", "cancelled")}<button class="r" onclick="return confirm('${h(t("إلغاء الطلب وإرجاع المبلغ للمستخدم؟"))}')">${h(t("إلغاء وإرجاع"))}</button>`));

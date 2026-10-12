@@ -426,16 +426,19 @@ export async function deliverOrder(id: number, actor: string, note = ""): Promis
   let text = note.trim();
   if (o.kind === "farm") {
     const f = await first(`SELECT game_id, token FROM farms WHERE id = $1`, [o.ref_id]);
-    if (!f || (!f.game_id && !f.token && !text)) return "أدخل بيانات المزرعة (ID / Token) أولًا من صفحة «بيانات المزارع»";
-    text = [f.game_id ? `ID: ${f.game_id}` : "", f.token ? `Token: ${f.token}` : "", text].filter(Boolean).join("\n");
+    const lk = await first(`SELECT email FROM farm_links WHERE order_id = $1`, [id]);
+    if (!lk && (!f || (!f.game_id && !f.token && !text))) return "أدخل بيانات المزرعة (ID / Token) أولًا من صفحة «بيانات المزارع»";
+    text = [lk ? `تم ربط المزرعة بالبريد: ${lk.email}` : "", f?.game_id ? `ID: ${f.game_id}` : "", !lk && f?.token ? `Token: ${f.token}` : "", text].filter(Boolean).join("\n");
   }
   const t = nowS();
   const r = await run(`UPDATE orders SET status = 'done', delivery = $1, delivered_at = $2, updated_at = $2 WHERE id = $3 AND status IN ('new','processing') RETURNING id`, [text || null, t, id]);
   if (!r.length) return "تمت معالجة الطلب مسبقًا";
   await audit(run, actor, "deliver_order", "order", id, { kind: o.kind });
   await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'order',$2,$3,$4,$5,$6,$7)`,
-    [o.user_id, "تم تسليم طلبك", `تم تسليم الطلب #${id}. افتح «طلباتي» لعرض التفاصيل.`, "Your order was delivered", `Order #${id} was delivered. Open "My orders" for details.`, "ORD-" + id, t]);
-  await notifyOrderPush(id, "تم تسليم طلبك");
+    o.kind === "farm"
+      ? [o.user_id, "تم تسليم مزرعتك", `تم تسليم مزرعتك بنجاح (الطلب #${id}). افتح «مشترياتي» لعرض التفاصيل.`, "Your farm was delivered", `Your farm was delivered successfully (order #${id}). Open "Purchases" for details.`, "ORD-" + id, t]
+      : [o.user_id, "تم تسليم طلبك", `تم تسليم الطلب #${id}. افتح «طلباتي» لعرض التفاصيل.`, "Your order was delivered", `Order #${id} was delivered. Open "My orders" for details.`, "ORD-" + id, t]);
+  await notifyOrderPush(id, o.kind === "farm" ? "تم تسليم مزرعتك" : "تم تسليم طلبك");
   return "تم التسليم وإرسال البيانات للمستخدم";
 }
 /** Admin balance correction: atomic, never below zero, always in the ledger + audit log. */
