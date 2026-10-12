@@ -57,7 +57,7 @@ export async function listEvents(): Promise<{ now: number; updated_at: number; e
 }
 
 export async function listNews() {
-  const rows = await run(`SELECT n.id, n.title, n.title_en, n.body, n.body_en, n.cat, n.link, n.pinned, n.published_at, n.updated_at, n.source, ${IMG("image", "n.")} FROM hd_news n WHERE n.active = 1 ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC LIMIT 60`);
+  const rows = await run(`SELECT n.id, n.title, n.title_en, n.body, n.body_en, n.cat, n.link, n.pinned, n.published_at, n.updated_at, n.source, ${IMG("image", "n.")} FROM hd_news n WHERE n.active = 1 AND (n.pinned = 1 OR n.published_at > $1) ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC LIMIT 60`, [nowS() - Math.max(1, num(await getSet("news_max_days", "60")) || 60) * 86400]);
   const upd = Math.max(num((await first(`SELECT MAX(updated_at) m FROM hd_news`))?.m), num(await getSet("news_sync_at", "0")));
   return {
     now: nowS(), updated_at: upd, synced_at: Math.max(num(await getSet("news_sync_try", "0")), upd), note: await getSet("news_note"),
@@ -412,7 +412,7 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
       if (await first(`SELECT id FROM notifications WHERE ref = $1 AND created_at > $2`, ["NEWS-" + id, t - 300])) return "أُرسل إشعار لهذا الخبر قبل لحظات";
       const n = await notifyNewsItem(id, r.title, r.body); return `تم إرسال الإشعار إلى ${n} مستخدم (داخل التطبيق + إشعار الجهاز لمن فعّله)`;
     }
-    case "news_notify_set": await putSet("news_notify", f("on") === "1" ? "1" : "0"); return "تم حفظ إعداد الإشعار التلقائي";
+    case "news_notify_set": await putSet("news_notify", f("on") === "1" ? "1" : "0"); await putSet("news_max_days", String(Math.min(3650, Math.max(1, Number(f("days")) || 60)))); return "تم حفظ إعداد الإشعار التلقائي";
   }
   return "إجراء غير معروف";
 }
@@ -484,7 +484,7 @@ export async function newsPage(ctx: Ctx): Promise<{ title: string; body: string;
     <div class="box"><h2>${h(t("المصدر والإعدادات"))}</h2>
     <p class="hint">${h(t("المصدر الافتراضي هو مدونة Hay Day الرسمية من Supercell، ويقرؤها الخادم كل ساعة (لا يتصل التطبيق بالمصدر مباشرة). يمكنك تغييره إلى رابط RSS أو Atom أو JSON، أو إضافة الأخبار يدويًا. المدونة الرسمية لا تنشر كثيرًا، فقد لا تظهر أخبار جديدة لأسابيع."))}</p>
     ${F("news_src", `<div class="fg">${field(t("رابط المصدر (https)"), `<input type="url" class="w" name="url" placeholder="https://..." value="${h(src)}">`)}${field(t("النص أعلى الصفحة (اختياري)"), `<input type="text" class="w" name="note" maxlength="200" value="${h(note)}" placeholder="${h(t("يتحدّث تلقائياً"))}">`)}</div><div class="row" style="margin-top:8px">${chk("auto", t("مزامنة تلقائية كل ساعة"), auto)}<button>${h(t("حفظ"))}</button></div>`)}
-    ${F("news_notify_set", `<div class="row" style="margin-top:8px">${chk("on", t("إرسال إشعار تلقائي عند وصول خبر جديد (أقل من 7 أيام)"), nNotify)}<button>${h(t("حفظ"))}</button></div>`)}
+    ${F("news_notify_set", `<div class="row" style="margin-top:8px">${chk("on", t("إرسال إشعار تلقائي عند وصول خبر جديد (أقل من 7 أيام)"), nNotify)}<label class="f" style="margin:0">${h(t("عرض أخبار آخر (يوم) فقط"))}</label><input type="number" class="w" name="days" min="1" max="3650" value="${num(await getSet("news_max_days", "60")) || 60}" style="max-width:90px"><button>${h(t("حفظ"))}</button></div>`)}
     <div class="sm" style="margin-top:6px">${h(t("آخر خبر جديد تم استيراده"))}: ${lastOk ? fmtT(lastOk) : "—"}</div>
     ${src ? F("news_sync", `<div class="row" style="margin-top:8px"><button class="g">${h(t("مزامنة الآن"))}</button>${tryAt ? `<span class="sm">${statusChip(ok1 ? "ok" : "bad", ok1 ? t("ناجحة") : t("فشلت"))} ${fmtT(tryAt)} · ${h(t(msg))}</span>` : ""}</div>`) : ""}</div>
     <div class="box"><h2>${h(t("خبر جديد"))}</h2>${form()}</div><h2>${h(t("الأخبار"))} (${rows.length})</h2>`;
