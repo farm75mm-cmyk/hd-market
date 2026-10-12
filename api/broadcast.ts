@@ -51,9 +51,10 @@ export async function pushSend(f: (k: string) => string): Promise<string> {
   // in-app notification too (visible in the bell even without push permission)
   const targets = ids ?? (await run(`SELECT id FROM users`)).map((r) => num(r.id));
   for (const uid of targets) await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'announce',$2,$3,$2,$3,$4,$5)`, [uid, title, body, "", t]);
-  const r = await broadcast(title, body, screen, ids);
+  let r: BroadcastResult = { users: 0, devices: 0, sent: 0, failed: 0, unknown: [] };
+  try { r = await broadcast(title, body, screen, ids); } catch (e) { console.error("broadcast failed", e); }
   await run(`INSERT INTO push_log (actor, title, body, screen, audience, target, users_n, devices, sent, failed, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [actor(), title, body, screen, audience, target, targets.length, r.devices, r.sent, r.failed, t]);
-  return `تم الإرسال: وصل ${r.sent} إشعار بنجاح من ${r.devices} جهاز` + (r.failed ? ` (فشل ${r.failed})` : "") + (unknown.length ? ` · أسماء غير موجودة: ${unknown.slice(0, 5).join("، ")}` : "") + (r.devices === 0 ? " · لا توجد أجهزة مسجّلة للإشعارات بعد" : "");
+  return `حُفظ التنبيه داخل التطبيق لـ ${targets.length} حساب · وصل ${r.sent} إشعار بنجاح من ${r.devices} جهاز` + (r.failed ? ` (فشل ${r.failed})` : "") + (unknown.length ? ` · أسماء غير موجودة: ${unknown.slice(0, 5).join("، ")}` : "") + (r.devices === 0 ? " · لا توجد أجهزة مسجّلة للإشعارات بعد" : "");
 }
 
 export async function pushPage(ctx: Ctx): Promise<{ title: string; body: string; js?: string }> {
