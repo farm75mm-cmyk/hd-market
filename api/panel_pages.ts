@@ -37,7 +37,12 @@ async function ordersList(ctx: Ctx, where: string, params: any[], opts: { delive
     const usdt = num(o.usdt) || toUsdt(num(o.total), o.currency ?? "JOD", rt);
     const pending = ["new", "processing"].includes(o.status);
     const tagHtml = o.farm_tag ? `<div class="sm" dir="ltr" style="text-align:right"><b>Tag:</b> #${h(o.farm_tag)} · ${h(t("سعة المخزن"))}: ${num(o.farm_cap)}</div>` : "";
-    const lineHtml = tagHtml + (lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "");
+    let typeHtml = "";
+    if (o.kind === "farm") {
+      const lk = await first(`SELECT id, email FROM farm_links WHERE order_id = $1`, [o.id]);
+      typeHtml = lk ? `<div class="sm" dir="ltr" style="text-align:right;margin-top:6px">${statusChip("done", t("مزرعة مربوطة بالبريد"))} <b>${h(lk.email)}</b> · <a href="/admin?tab=farm_links&q=${encodeURIComponent(lk.email)}">${h(t("طلب الربط"))} #${num(lk.id)}</a></div>` : `<div class="sm" style="margin-top:6px">${statusChip("new", t("مزرعة تجريبية (Test Farm)"))}</div>`;
+    }
+    const lineHtml = typeHtml + tagHtml + (lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "");
     const act: string[] = [];
     if (pending) {
       if (o.kind === "farm" || o.kind === "random") act.push(F("order_deliver", `${hid("id", o.id)}<div class="row"><input type="text" name="note" placeholder="${h(t("ملاحظة للمشتري (اختياري)"))}" style="min-width:150px"><button class="y">${h(t("تسليم"))}</button></div>`, `&st=${h(ctx.url.searchParams.get("st") ?? "")}`));
