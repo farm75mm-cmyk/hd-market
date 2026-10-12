@@ -39,6 +39,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   const ERR = {
     insufficient_balance: ["رصيدك غير كافٍ. اشحن رصيدك أولًا.", "Insufficient balance. Top up first.", "Số dư không đủ. Hãy nạp tiền trước.", "余额不足，请先充值。"],
+    price_changed: ["تغيّر السعر قبل إتمام الشراء، فلم يُخصم أي مبلغ. تم تحديث الأسعار؛ راجعها ثم أعد المحاولة.", "The price changed before checkout, so nothing was charged. Prices are updated; review and try again.", "Giá đã thay đổi nên chưa trừ tiền. Giá đã được cập nhật, hãy xem lại.", "价格已变动，未扣款。价格已更新，请确认后重试。"],
     out_of_stock: ["الكمية غير متوفرة.", "Not enough stock.", "Không đủ hàng.", "库存不足。"],
     tag_required: ["أدخل Tag المزرعة وسعة المخزن.", "Enter your farm Tag and storage capacity.", "Nhập Tag nông trại và sức chứa kho.", "请输入农场 Tag 和仓库容量。"],
     tag_limit: ["تجاوزت الحد الأقصى لهذا الـ Tag.", "Limit reached for this Tag.", "Đã đạt giới hạn cho Tag này.", "此 Tag 已达上限。"],
@@ -250,7 +251,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
   }
   function drawConfirm() {
     const o = HD.cf; if (!o) return;
-    const tot = o.pr && hasP(o.pr.prices) ? Number(o.pr.prices[HD.cur]) * (o.pr.n || 1) : cv(o.usdt), have = bal(), low = have < tot;
+    const tot = o.pr && hasP(o.pr.prices) ? Number(o.pr.prices[HD.cur]) * (o.pr.n || 1) : cv(o.usdt), have = bal(), low = have < tot; o.tot = tot;
     xsheet(`${o.img ? `<img loading="lazy" decoding="async" class="xfb" src="${E(o.img)}" alt="" style="width:84px;height:84px;border-radius:18px;object-fit:cover;display:block;margin:0 auto 8px">` : ""}<h2>${E(o.title)}</h2>${o.lines ? `<div class="xmut">${o.lines}</div>` : ""}${typeof o.extra == "function" ? o.extra() : o.extra || ""}
       <div class="xr" style="margin:8px 0">${CURS.map((c) => `<button class="xchip ${c == HD.cur ? "on" : ""}" data-x="cc:${c}">${c}</button>`).join("")}</div>
       <div class="line"><span>${xt("total")}</span><b>${amt(tot)}</b></div><div class="line"><span>${xt("yourbal")}</span><span>${amt(have)}</span></div><div id="xerr"></div>
@@ -258,10 +259,14 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
       <button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
   }
   async function doBuy() {
-    const o = HD.cf, b = $("xgo"); if (!o || !b) return;
-    b.disabled = true;
+    const o = HD.cf, b = $("xgo"); if (!o || !b || o.busy) return;
+    o.busy = true; b.disabled = true;
     try { await o.run(HD.cur, o.key); }
-    catch (r) { const e = $("xerr"); if (e) e.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; b.disabled = false; }
+    catch (r) {
+      o.busy = false; const e = $("xerr");
+      if (r && r.error == "price_changed") { loadCfg(); loadCat(); loadHome(); loadOpt(); refreshMe(); if (e) e.innerHTML = `<div class="xerr">${E(emsg(r))}${r.total ? `<br><b>${E(amt(r.total, r.currency || HD.cur))}</b>` : ""}</div>`; const g = $("xgo"); if (g) g.remove(); return; }
+      if (e) e.innerHTML = `<div class="xerr">${E(emsg(r))}</div>`; b.disabled = false;
+    }
   }
   function done(order, prize) {
     HD.cf = null;
@@ -271,6 +276,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     HD.copyv = order.delivery || "";
   }
   async function purchase(name, body, prizeOf) {
+    if (HD.cf && HD.cf.tot > 0 && (!body.currency || body.currency == HD.cur)) body.expect = HD.cf.tot;
     const r = await call(name, body);
     if (!r.ok) throw r;
     setBal(r.balances); done(r.order, prizeOf ? prizeOf(r.order) : null);

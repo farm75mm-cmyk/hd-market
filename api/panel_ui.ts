@@ -121,7 +121,7 @@ export function layout(ctx: Ctx, title: string, body: string, badges: Record<str
 <a class="ni${tab === "home" ? " on" : ""}" href="/admin" style="margin-top:8px">${tile(4, "chart", 52)}<span>${h(t("الرئيسية"))}</span></a>${nav}</aside>
 <header class="top"><button class="sq mb" type="button" aria-label="menu" onclick="document.body.classList.add('open')">${ic("menu", 24)}</button><div class="ttl">${h(title)}</div>
 <form method="post" action="/admin"><input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="do" value="logout"><button class="sq" aria-label="logout">${ic("out", 22)}</button></form></header>
-<div class="wrap">BODY</div>${extraJs}`.replace("BODY", () => body);
+<div class="wrap">BODY</div>${extraJs}${PRICE_JS}`.replace("BODY", () => body);
 }
 
 export const fmtT = (t: any) => {
@@ -130,8 +130,11 @@ export const fmtT = (t: any) => {
   const g = (k: string) => p.find((x) => x.type === k)?.value ?? "";
   return `${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")}`;
 };
-export const money = (n: any, d = 4) => { const v = Number(n ?? 0); const s = v.toFixed(d).replace(/0+$/, "").replace(/\.$/, ""); return s === "" ? "0" : s; };
-export const usdtFmt = (n: any) => { const v = Number(n ?? 0); const s = v.toFixed(6).replace(/0+$/, ""); const dec = s.split(".")[1] ?? ""; return dec.length < 2 ? v.toFixed(2) : s; };
+const grp = (s: string) => s.replace(/^(-?)(\d+)/, (_m, g, i) => g + i.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+export const money = (n: any, d = 4) => { const v = Number(n ?? 0); const s = v.toFixed(d).replace(/0+$/, "").replace(/\.$/, ""); return grp(s === "" ? "0" : s); };
+/** shows "1,250,000" under every price field while typing (number inputs cannot show separators themselves) */
+const PRICE_JS = `<script>(function(){function g(v){if(v===""||isNaN(v))return"";var p=String(v).split(".");p[0]=p[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g,",");return p.join(".")}function sel(i){return i.type==="number"&&/^(price|pr_|opt_price|amount|min|max)/.test(i.name||"")}function hook(i){if(i.dataset.pf)return;i.dataset.pf=1;var s=document.createElement("small");s.className="pfm";s.dir="ltr";s.style.cssText="text-align:right;display:block;color:#1b6b1b;font-weight:800;min-height:14px;margin-top:2px";i.insertAdjacentElement("afterend",s);var u=function(){s.textContent=i.value===""?"":g(i.value)};i.addEventListener("input",u);u()}function all(){document.querySelectorAll("input[type=number]").forEach(function(i){if(sel(i))hook(i)})}all();new MutationObserver(all).observe(document.body,{childList:true,subtree:true})})()</script>`;
+export const usdtFmt = (n: any) => { const v = Number(n ?? 0); const s = v.toFixed(6).replace(/0+$/, ""); const dec = s.split(".")[1] ?? ""; return grp(dec.length < 2 ? v.toFixed(2) : s); };
 
 export const PICK_JS = `<script>(function(){function st(i,m,bad){var p=i.parentNode;if(p.classList.contains("bigimg")){if(bad)alert(m);return}var s=p.querySelector(".pst");if(!s){s=document.createElement("small");s.className="pst";p.appendChild(s)}s.textContent=m;s.style.color=bad?"#c52b50":"#1b6b1b";s.style.fontWeight="700"}
 function busy(i,v){if(i.form)i.form.dataset.busy=v?"1":""}

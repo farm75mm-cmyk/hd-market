@@ -112,7 +112,7 @@ export async function pushAll(title: string, body: string, screen = "home") {
 
 // ---------- ordering ----------
 export const optPrice = async () => Number(await getSet("opt_price", "0.001625")) || 0.001625;
-type OrderIn = { over?: number | null; kind: string; name: string; qty: number; usdt: number; lines: any[]; refId?: number; status?: string; delivery?: string; idem?: string | null };
+type OrderIn = { over?: number | null; kind: string; name: string; qty: number; usdt: number; lines: any[]; refId?: number; status?: string; delivery?: string; idem?: string | null; expect?: number };
 /** amount of one line in `cur`: the admin's own price for that currency when typed, otherwise converted from USDT. */
 async function lineAmt(q: Q, kind: string, id: number, cur: string, unitUsdt: number, n: number, rt: Record<string, number>) {
   const ov = (await getItemPrices(kind, [id], q)).get(id)?.[cur];
@@ -123,6 +123,8 @@ async function placeOrder(q: Q, u: Row, cur: string, o: OrderIn) {
   const rt = await getRates(q);
   const total = o.over != null && o.over > 0 ? o.over : fromUsdt(o.usdt, cur, rt);
   if (!(total > 0) || !Number.isFinite(total)) throw new Fail("invalid");
+  // the price the user saw on screen must be the price charged; if the admin changed it meanwhile, stop and show the new one
+  if (o.expect != null && Number.isFinite(o.expect) && o.expect > 0 && Math.abs(total - o.expect) > Math.max(0.5 / 10 ** (DEC[cur] ?? 2), total * 0.005)) throw new Fail("price_changed", 409, { total, currency: cur });
   const w = await q(`UPDATE user_wallets SET amount = amount - $1, updated_at = $2 WHERE user_id = $3 AND currency = $4 AND amount >= $1 RETURNING amount`, [total, nowS(), u.id, cur]);
   if (!w.length) throw new Fail("insufficient_balance", 402, { need: total, currency: cur });
   const t = nowS();
@@ -139,6 +141,7 @@ const ordOut = (o: Row) => {
   return { farm_tag: o.farm_tag ?? null, farm_cap: num(o.farm_cap), id: num(o.id), kind: o.kind ?? "tool", name: o.product_name, qty: num(o.qty), total: num(o.total), currency: o.currency ?? "JOD", status: o.status, created_at: num(o.created_at), updated_at: num(o.updated_at), lines, delivery: showDelivery ? o.delivery : null, delivered_at: num(o.delivered_at) };
 };
 const curOf = (b: Row) => (CURRENCIES.includes(String(b.currency)) ? String(b.currency) : "JOD");
+const expOf = (b: Row) => { const v = Number(b.expect); return Number.isFinite(v) && v > 0 ? v : undefined; };
 const idemOf = (b: Row) => String(b.idem_key ?? "").slice(0, 64) || null;
 async function dupOrder(uid: any, idem: string | null) {
   if (!idem) return null;
@@ -252,7 +255,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       }
       usdt = Math.round(usdt * 1e8) / 1e8;
       const name = lines.length === 1 ? `${lines[0].n} × ${lines[0].q}` : (kind === "opt" ? "منتجات اختياري" : "طلب أدوات") + ` (${qty})`;
-      const ro = await placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem, over: kind !== "opt" && anyOv ? ovTot : null });
+      const ro = await placeOrder(q, u, cur, { kind: kind === "opt" ? "opt" : "tool", name, qty, usdt, lines, idem, expect: expOf(b), over: kind !== "opt" && anyOv ? ovTot : null });
       if (usedTag) await q(`UPDATE orders SET farm_tag = $1, farm_cap = $2 WHERE id = $3`, [tagOk, fcap, ro.id]);
       return ro;
     }));
@@ -265,7 +268,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       const f = (await q(`UPDATE farms SET qty = qty - 1, sold = CASE WHEN qty <= 1 THEN 1 ELSE 0 END, buyer_id = $1, sold_at = $2 WHERE id = $3 AND sold = 0 AND active = 1 AND qty >= 1 RETURNING *`, [u.id, nowS(), Number(b.id)]))[0];
       if (!f) throw new Fail("out_of_stock", 409);
       const fa = await lineAmt(q, "farm", num(f.id), cur, num(f.price), 1, await getRates(q));
-      const r = await placeOrder(q, u, cur, { over: fa.ov ? fa.amt : null, kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem });
+      const r = await placeOrder(q, u, cur, { over: fa.ov ? fa.amt : null, kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem, expect: expOf(b) });
       await q(`UPDATE farms SET order_id = $1 WHERE id = $2`, [r.id, f.id]);
       return r;
     }));
@@ -278,7 +281,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       const p = (await q(`SELECT * FROM products WHERE id = $1 AND kind = 'code' AND active = 1`, [Number(b.id)]))[0];
       if (!p) throw new Fail("not_found", 404);
       const ca = await lineAmt(q, "code", num(p.id), cur, num(p.price), n, await getRates(q));
-      const r = await placeOrder(q, u, cur, { over: ca.ov ? ca.amt : null, kind: "code", name: `${p.name} × ${n}`, qty: n, usdt: num(p.price) * n, lines: [{ id: num(p.id), n: p.name, q: n, p: num(p.price) }], refId: num(p.id), status: "done", idem, delivery: "—" });
+      const r = await placeOrder(q, u, cur, { over: ca.ov ? ca.amt : null, kind: "code", name: `${p.name} × ${n}`, qty: n, usdt: num(p.price) * n, lines: [{ id: num(p.id), n: p.name, q: n, p: num(p.price) }], refId: num(p.id), status: "done", idem, expect: expOf(b), delivery: "—" });
       const codes: string[] = [];
       for (let i = 0; i < n; i++) {
         let got: Row | undefined;
@@ -308,7 +311,7 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       for (const p of prizes) { pick -= num(p.weight); if (pick < 0) { prize = p; break; } }
       if (num(prize.stock) > 0 && !(await q(`UPDATE random_prizes SET stock = stock - 1 WHERE id = $1 AND stock > 0 RETURNING id`, [prize.id])).length) throw new Fail("out_of_stock", 409);
       const ba = await lineAmt(q, "box", num(box.id), cur, num(box.price), 1, await getRates(q));
-      return placeOrder(q, u, cur, { over: ba.ov ? ba.amt : null, kind: "random", name: box.name, qty: 1, usdt: num(box.price), lines: [{ id: num(box.id), n: box.name, q: 1, p: num(box.price), prize: prize.label }], refId: num(box.id), idem });
+      return placeOrder(q, u, cur, { over: ba.ov ? ba.amt : null, kind: "random", name: box.name, qty: 1, usdt: num(box.price), lines: [{ id: num(box.id), n: box.name, q: 1, p: num(box.price), prize: prize.label }], refId: num(box.id), idem, expect: expOf(b) });
     }));
   },
   async orders(b) {
