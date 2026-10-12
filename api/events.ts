@@ -1,7 +1,7 @@
 // Hay Day weekly events: manual events, weekly recurring rules and optional import from a trusted external feed (JSON / iCal).
 // All times are stored as UTC epoch seconds (the game's own clock is UTC; weekly events start Monday 08:00 UTC).
 import { run, first, count, num, nowS, serial, Row, h, ok, getSet, putSet, okImg, env } from "./core";
-import { IMG, imgUrl, WEB_ORIGIN } from "./shop";
+import { IMG, imgUrl, WEB_ORIGIN, pushAll } from "./shop";
 import type { Ctx } from "./panel_ui";
 import { statusChip, fmtT, picker, field, PICK_JS } from "./panel_ui";
 
@@ -57,12 +57,17 @@ export async function listEvents(): Promise<{ now: number; updated_at: number; e
 }
 
 export async function listNews() {
-  const rows = await run(`SELECT n.id, n.title, n.title_en, n.body, n.body_en, n.cat, n.link, n.pinned, n.published_at, n.updated_at, ${IMG("image", "n.")} FROM hd_news n WHERE n.active = 1 ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC LIMIT 60`);
+  const rows = await run(`SELECT n.id, n.title, n.title_en, n.body, n.body_en, n.cat, n.link, n.pinned, n.published_at, n.updated_at, n.source, ${IMG("image", "n.")} FROM hd_news n WHERE n.active = 1 ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC LIMIT 60`);
   const upd = Math.max(num((await first(`SELECT MAX(updated_at) m FROM hd_news`))?.m), num(await getSet("news_sync_at", "0")));
   return {
     now: nowS(), updated_at: upd, synced_at: Math.max(num(await getSet("news_sync_try", "0")), upd), note: await getSet("news_note"),
-    items: rows.map((r) => ({ id: num(r.id), title: r.title, title_en: r.title_en || "", body: r.body, body_en: r.body_en || "", cat: r.cat, image: imgUrl("w", r), link: r.link || "", pinned: num(r.pinned), date: num(r.published_at) })),
+    items: rows.map(newsOut),
   };
+}
+const newsOut = (r: Row) => ({ id: num(r.id), title: r.title, title_en: r.title_en || "", body: r.body, body_en: r.body_en || "", cat: r.cat, image: imgUrl("w", r), link: r.link || "", pinned: num(r.pinned), date: num(r.published_at), official: r.source === "import" ? 1 : 0 });
+export async function newsOne(id: number) {
+  const r = await first(`SELECT n.id, n.title, n.title_en, n.body, n.body_en, n.cat, n.link, n.pinned, n.published_at, n.source, ${IMG("image", "n.")} FROM hd_news n WHERE n.id = $1 AND n.active = 1`, [id]);
+  return r ? newsOut(r) : null;
 }
 
 export const EV: Record<string, (b: Row) => Promise<Response>> = {
@@ -164,23 +169,98 @@ export function parseNews(text: string): NewsIn[] {
   } else throw new Error("صيغة غير مدعومة (RSS أو Atom أو JSON فقط)");
   return out;
 }
+// ---------- official Supercell blog scraper (the blog has no RSS/JSON feed) ----------
+export const NEWS_DEFAULT_SRC = "https://supercell.com/en/games/hayday/blog/";
+const UA = "HDMarketNewsBot/1.0 (+news aggregator; respects source links)";
+const fetchText = async (url: string) => {
+  const r = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/json,*/*" } });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return (await r.text()).slice(0, 3_000_000);
+};
+const decode = (x: string) => x.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Math.min(+d, 0x10ffff)));
+const blockText = (html: string) => decode(html.replace(/<(script|style|noscript|svg|nav|header|footer)[\s\S]*?<\/\1>/gi, " ").replace(/<\/(p|div|li|h[1-6]|tr|section)>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")).replace(/[ \t\u00a0]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+const meta = (html: string, k: string) => {
+  const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${k}["'][^>]*content=["']([^"']*)["']`, "i")) ?? html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${k}["']`, "i"));
+  return m ? decode(m[1]).trim() : "";
+};
+const MON: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+/** Publish date of an article; 0 when none can be found (never guessed). */
+export function articleDate(html: string): number {
+  const iso = meta(html, "article:published_time") || meta(html, "og:article:published_time") || html.match(/"datePublished"\s*:\s*"([^"]+)"/)?.[1] || html.match(/<time[^>]+datetime=["']([^"']+)["']/i)?.[1] || "";
+  if (iso) { const d = toSec(iso); if (d > 1e9) return d; }
+  const t = blockText(html.slice(0, 400000));
+  const m = t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?,?\s+(20\d{2})\b/i) ?? null;
+  if (m) return Math.floor(Date.UTC(+m[3], MON[m[2].toLowerCase()], +m[1], 8) / 1000);
+  const m2 = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b/i);
+  return m2 ? Math.floor(Date.UTC(+m2[3], MON[m2[1].toLowerCase()], +m2[2], 8) / 1000) : 0;
+}
+export function blogLinks(html: string, base: string): string[] {
+  const out = new Set<string>(), u = new URL(base);
+  for (const m of html.matchAll(/href=["']([^"'#?]+)["']/gi)) {
+    let abs: URL; try { abs = new URL(decode(m[1]), base); } catch { continue; }
+    if (abs.hostname !== u.hostname) continue;
+    const mm = abs.pathname.match(/^(\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?games\/hayday\/blog\/([a-z0-9-]+)\/[a-z0-9][a-z0-9-]*)\/?$/i);
+    if (mm && !/^(page|tag|category)$/i.test(mm[2])) out.add(abs.origin + mm[1] + "/");
+  }
+  return [...out];
+}
+export async function articleFrom(url: string): Promise<NewsIn | null> {
+  const html = await fetchText(url);
+  const title = (meta(html, "og:title") || decode(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, "") ?? "")).replace(/\s*[|–-]\s*(Supercell|Hay Day).*$/i, "").trim();
+  if (!title) return null;
+  const date = articleDate(html); if (!date) return null;
+  const main = html.match(/<article[\s\S]*?<\/article>/i)?.[0] ?? html.match(/<main[\s\S]*?<\/main>/i)?.[0] ?? "";
+  let body = blockText(main);
+  const desc = meta(html, "og:description") || meta(html, "description");
+  if (body.toLowerCase().startsWith(title.toLowerCase())) body = body.slice(title.length).trim();
+  if (body.length < 40) body = desc;
+  const img = meta(html, "og:image"), seg = new URL(url).pathname.match(/\/blog\/([a-z0-9-]+)\//i)?.[1] ?? "";
+  const cat = /update|patch|release/i.test(seg) ? "updates" : /event|season/i.test(seg) ? "events" : guessCat(title + " " + seg);
+  return { ext: url, title: title.slice(0, 200), body: body.slice(0, 4000), cat, image: /^https:\/\//.test(img) ? img.slice(0, 600) : "", link: url, date, pinned: 0 };
+}
+async function notifyNewsItem(id: number, title: string, body: string): Promise<number> {
+  const t = nowS(), bd = body.replace(/\s+/g, " ").slice(0, 110);
+  const users = await run(`SELECT id FROM users`);
+  for (const u of users) await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'announce',$2,$3,$2,$3,$4,$5)`, [u.id, "📰 " + title.slice(0, 120), bd, "NEWS-" + id, t]);
+  await pushAll("📰 " + title.slice(0, 80), bd || "خبر جديد في Hay Day", "news");
+  return users.length;
+}
+const FRESH = 7 * 86400;
 export async function syncNews(): Promise<string> {
-  const url = (await getSet("news_src_url")).trim();
-  if (!/^https:\/\//.test(url)) return "لم يُضبط رابط مصدر الأخبار (https)";
+  const url = ((await getSet("news_src_url")).trim()) || NEWS_DEFAULT_SRC;
+  if (!/^https:\/\//.test(url) && !(env("DEBUG_RETURN_CODE") && /^http:\/\/127\.0\.0\.1[:/]/.test(url))) return "رابط مصدر الأخبار غير صالح (https)";
   let msg = "", good = "0";
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { Accept: "application/rss+xml, application/atom+xml, application/json, text/xml, */*" } });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const items = parseNews((await r.text()).slice(0, 3_000_000)).slice(0, 100);
-    const n = nowS(); let add = 0, upd = 0;
+    const text = await fetchText(url);
+    let items: NewsIn[], skipped = 0;
+    if (/<(!doctype html|html)[\s>]/i.test(text.slice(0, 2000))) {
+      const links = blogLinks(text, url); items = [];
+      if (!links.length) throw new Error("لم يتم العثور على مقالات في الصفحة (قد يكون تصميم المصدر تغيّر)");
+      let fetched = 0;
+      for (const l of links) {
+        if (await first(`SELECT id FROM hd_news WHERE ext_id = $1 OR link = $1`, [l])) continue;
+        if (fetched++ >= 15) break;
+        try { const a = await articleFrom(l); if (a) items.push(a); else skipped++; } catch { skipped++; }
+      }
+    } else items = parseNews(text).slice(0, 100);
+    const n = nowS(); let add = 0, upd = 0, pushed = 0;
+    const firstRun = (await getSet("news_first_done")) !== "1";
     for (const x of items) {
-      const ex = await first(`SELECT id, source, title, body, cat, link, published_at FROM hd_news WHERE ext_id = $1`, [x.ext]);
-      if (!ex) { await run(`INSERT INTO hd_news (title, body, cat, image, link, pinned, published_at, source, ext_id, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'import',$8,1,$9,$9)`, [x.title, x.body, x.cat, x.image || null, x.link, x.pinned, x.date, x.ext, n]); add++; }
-      else if (ex.source === "import" && (ex.title !== x.title || ex.body !== x.body || ex.link !== x.link)) { await run(`UPDATE hd_news SET title=$1, body=$2, link=$3, updated_at=$4 WHERE id=$5`, [x.title, x.body, x.link, n, ex.id]); upd++; }
+      const ex = await first(`SELECT id, source, title, title_en, body, body_en, link FROM hd_news WHERE ext_id = $1 OR (link <> '' AND link = $2)`, [x.ext, x.link]);
+      if (!ex) {
+        const r = (await run(`INSERT INTO hd_news (title, title_en, body, body_en, cat, image, link, pinned, published_at, source, ext_id, active, created_at, updated_at) VALUES ($1,$1,$2,$2,$3,$4,$5,$6,$7,'import',$8,1,$9,$9) RETURNING id`, [x.title, x.body, x.cat, x.image || null, x.link, x.pinned, x.date, x.ext, n]))[0];
+        add++;
+        // only genuinely fresh posts notify users; the very first import and old posts never do
+        if (!firstRun && r && x.date > n - FRESH && (await getSet("news_notify", "1")) === "1") { await notifyNewsItem(num(r.id), x.title, x.body); pushed++; }
+      } else if (ex.source === "import" && (ex.title_en !== x.title || ex.body_en !== x.body || ex.link !== x.link)) {
+        // the admin's Arabic text is kept; only untranslated fields follow the source
+        await run(`UPDATE hd_news SET title=CASE WHEN title = title_en THEN $1 ELSE title END, body=CASE WHEN body = body_en THEN $2 ELSE body END, title_en=$1, body_en=$2, link=$3, updated_at=$4 WHERE id=$5`, [x.title, x.body, x.link, n, ex.id]); upd++;
+      }
     }
-    msg = `تمت المزامنة: ${items.length} خبر في المصدر · جديد ${add} · محدَّث ${upd}`; good = "1";
+    await putSet("news_first_done", "1");
+    msg = `تمت المزامنة: ${items.length} خبر مقروء من المصدر · جديد ${add} · محدَّث ${upd}` + (pushed ? ` · أُرسل إشعار لـ ${pushed}` : "") + (skipped ? ` · تخطّي ${skipped} (بلا تاريخ نشر واضح)` : ""); good = "1";
     if (add || upd) await putSet("news_sync_at", String(n));
-  } catch (e: any) { msg = "فشلت المزامنة: " + String(e?.message ?? e).slice(0, 120); }
+  } catch (e: any) { msg = "فشلت المزامنة: " + String(e?.message ?? e).slice(0, 160); }
   await putSet("news_sync_ok", good); await putSet("news_sync_try", String(nowS())); await putSet("news_sync_msg", msg);
   return msg;
 }
@@ -230,10 +310,11 @@ setInterval(async () => {
       const wk = weekKey(d.getUTCDay() === 0 ? n + 86400 : n); // Sunday afternoon prepares the coming week
       if (due && (await getSet("ev_ai_week")) !== wk && n - num(await getSet("ev_ai_try", "0")) > 3000) { await draftEvents(); if ((await getSet("ev_ai_ok")) === "1") await putSet("ev_ai_week", wk); }
     }
-    if ((await getSet("news_auto", "1")) === "1" && /^https:\/\//.test((await getSet("news_src_url")).trim())) await syncNews();
+    if ((await getSet("news_auto", "1")) === "1") await syncNews();
     await run(`DELETE FROM hd_events WHERE end_at < $1 AND source = 'import'`, [nowS() - 30 * 86400]);
   } catch (e) { console.error("events sync", e); }
 }, 3600_000);
+setTimeout(async () => { try { if ((await getSet("news_auto", "1")) === "1") await syncNews(); } catch (e) { console.error("news first sync", e); } }, 25000);
 
 // ---------- admin ----------
 const parseUtc = (v: string) => { const m = v.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/); return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000) : 0; };
@@ -323,6 +404,15 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
       return "تم حفظ إعدادات الأخبار";
     }
     case "news_sync": return syncNews();
+    case "news_toggle": { const r = await first(`SELECT active FROM hd_news WHERE id = $1`, [id]); if (!r) return "الخبر غير موجود"; await run(`UPDATE hd_news SET active = $1, updated_at = $2 WHERE id = $3`, [num(r.active) ? 0 : 1, t, id]); return num(r.active) ? "تم إخفاء الخبر" : "تم إظهار الخبر"; }
+    case "news_pin": { const r = await first(`SELECT pinned FROM hd_news WHERE id = $1`, [id]); if (!r) return "الخبر غير موجود"; await run(`UPDATE hd_news SET pinned = $1, updated_at = $2 WHERE id = $3`, [num(r.pinned) ? 0 : 1, t, id]); return num(r.pinned) ? "أُلغي التثبيت" : "تم تثبيت الخبر"; }
+    case "news_notify": {
+      const r = await first(`SELECT title, body, active FROM hd_news WHERE id = $1`, [id]); if (!r) return "الخبر غير موجود";
+      if (!num(r.active)) return "الخبر مخفي؛ أظهره أولًا";
+      if (await first(`SELECT id FROM notifications WHERE ref = $1 AND created_at > $2`, ["NEWS-" + id, t - 300])) return "أُرسل إشعار لهذا الخبر قبل لحظات";
+      const n = await notifyNewsItem(id, r.title, r.body); return `تم إرسال الإشعار إلى ${n} مستخدم (داخل التطبيق + إشعار الجهاز لمن فعّله)`;
+    }
+    case "news_notify_set": await putSet("news_notify", f("on") === "1" ? "1" : "0"); return "تم حفظ إعداد الإشعار التلقائي";
   }
   return "إجراء غير معروف";
 }
@@ -389,14 +479,16 @@ export async function newsPage(ctx: Ctx): Promise<{ title: string; body: string;
     <p style="margin-top:10px">${field(t("نص الخبر (عربي)"), `<textarea name="body" maxlength="4000">${h(n?.body ?? "")}</textarea>`)}</p><p style="margin-top:6px">${field(t("نص الخبر بالإنجليزية"), `<textarea name="body_en" maxlength="4000">${h(n?.body_en ?? "")}</textarea>`)}</p>
     <div class="row" style="margin-top:10px">${chk("pinned", t("تثبيت في الأعلى"), !!num(n?.pinned))}${chk("active", t("ظاهر في التطبيق"), n ? !!num(n.active) : true)}${picker(n ? imgUrl("w", n) : null)}${n ? chk("noimg", t("إزالة الصورة"), false) : ""}<button class="${n ? "" : "y"}">${h(t(n ? "حفظ" : "نشر الخبر"))}</button></div>`);
   const rows = await run(`SELECT n.*, ${IMG("image", "n.")} FROM hd_news n ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC LIMIT 100`);
-  const src = await getSet("news_src_url"), auto = (await getSet("news_auto", "1")) === "1", note = await getSet("news_note"), tryAt = num(await getSet("news_sync_try", "0")), ok1 = (await getSet("news_sync_ok")) === "1", msg = await getSet("news_sync_msg");
+  const src = (await getSet("news_src_url")) || NEWS_DEFAULT_SRC, nNotify = (await getSet("news_notify", "1")) === "1", lastOk = num(await getSet("news_sync_at", "0")), auto = (await getSet("news_auto", "1")) === "1", note = await getSet("news_note"), tryAt = num(await getSet("news_sync_try", "0")), ok1 = (await getSet("news_sync_ok")) === "1", msg = await getSet("news_sync_msg");
   let body = `<p class="hint">${h(t("تظهر الأخبار في تبويب «أخبار Hay Day» في التطبيق فور حفظها دون تحديث التطبيق. أوقات النشر بتوقيت UTC."))}</p>
     <div class="box"><h2>${h(t("المصدر والإعدادات"))}</h2>
-    <p class="hint">${h(t("اختياريًا: ضع رابط RSS أو Atom أو JSON لمصدر أخبار تثق به وسيستورد الخادم منه كل ساعة. لا يوجد API رسمي لأخبار Hay Day، لذلك يمكنك أيضًا نشر الأخبار يدويًا."))}</p>
+    <p class="hint">${h(t("المصدر الافتراضي هو مدونة Hay Day الرسمية من Supercell، ويقرؤها الخادم كل ساعة (لا يتصل التطبيق بالمصدر مباشرة). يمكنك تغييره إلى رابط RSS أو Atom أو JSON، أو إضافة الأخبار يدويًا. المدونة الرسمية لا تنشر كثيرًا، فقد لا تظهر أخبار جديدة لأسابيع."))}</p>
     ${F("news_src", `<div class="fg">${field(t("رابط المصدر (https)"), `<input type="url" class="w" name="url" placeholder="https://..." value="${h(src)}">`)}${field(t("النص أعلى الصفحة (اختياري)"), `<input type="text" class="w" name="note" maxlength="200" value="${h(note)}" placeholder="${h(t("يتحدّث تلقائياً"))}">`)}</div><div class="row" style="margin-top:8px">${chk("auto", t("مزامنة تلقائية كل ساعة"), auto)}<button>${h(t("حفظ"))}</button></div>`)}
+    ${F("news_notify_set", `<div class="row" style="margin-top:8px">${chk("on", t("إرسال إشعار تلقائي عند وصول خبر جديد (أقل من 7 أيام)"), nNotify)}<button>${h(t("حفظ"))}</button></div>`)}
+    <div class="sm" style="margin-top:6px">${h(t("آخر خبر جديد تم استيراده"))}: ${lastOk ? fmtT(lastOk) : "—"}</div>
     ${src ? F("news_sync", `<div class="row" style="margin-top:8px"><button class="g">${h(t("مزامنة الآن"))}</button>${tryAt ? `<span class="sm">${statusChip(ok1 ? "ok" : "bad", ok1 ? t("ناجحة") : t("فشلت"))} ${fmtT(tryAt)} · ${h(t(msg))}</span>` : ""}</div>`) : ""}</div>
     <div class="box"><h2>${h(t("خبر جديد"))}</h2>${form()}</div><h2>${h(t("الأخبار"))} (${rows.length})</h2>`;
   body += rows.map((n) => `<div class="item"><div class="row">${imgUrl("w", n) ? `<img class="th" style="width:56px;height:36px;border-radius:8px;object-fit:cover" src="${h(imgUrl("w", n))}" alt="">` : ""}<b>${h(n.title)}</b>${statusChip("processing", t(NCATS.find((c) => c[0] === n.cat)?.[1] ?? ""))}${num(n.pinned) ? statusChip("ok", t("مثبّت")) : ""}${n.source === "import" ? statusChip("processing", t("مستورد")) : ""}${num(n.active) ? "" : statusChip("bad", t("مخفي"))}<span class="sm">${fmtU(n.published_at)}</span></div>
-    <details><summary>${h(t("تعديل"))}</summary>${form(n)}</details><div class="acts">${F("news_del", `${hid("id", n.id)}<button class="r s" onclick="return confirm('${h(t("حذف الخبر؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`).join("") || `<p class="hint">${h(t("لا توجد أخبار بعد."))}</p>`;
+    <details><summary>${h(t("تعديل وترجمة"))}</summary>${form(n)}</details>${n.link ? `<div class="sm"><a href="${h(n.link)}" target="_blank" rel="noopener">${h(t("المصدر الأصلي"))}</a></div>` : ""}<div class="acts">${F("news_pin", `${hid("id", n.id)}<button class="g s">${h(t(num(n.pinned) ? "إلغاء التثبيت" : "تثبيت"))}</button>`)}${F("news_toggle", `${hid("id", n.id)}<button class="g s">${h(t(num(n.active) ? "إخفاء" : "إظهار"))}</button>`)}${F("news_notify", `${hid("id", n.id)}<button class="y s" onclick="return confirm('${h(t("إرسال إشعار بهذا الخبر لجميع المستخدمين؟"))}')">${h(t("إرسال إشعار"))}</button>`)}${F("news_del", `${hid("id", n.id)}<button class="r s" onclick="return confirm('${h(t("حذف الخبر؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`).join("") || `<p class="hint">${h(t("لا توجد أخبار بعد."))}</p>`;
   return { title: t("أخبار Hay Day"), body, js: PICK_JS };
 }

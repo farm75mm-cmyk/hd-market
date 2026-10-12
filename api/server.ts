@@ -7,7 +7,7 @@ import {
 import { SHOP, IMG, imgUrl, imgResponse } from "./shop";
 import { admin } from "./panel";
 import { AI } from "./assist";
-import { EV } from "./events";
+import { EV, listNews, listEvents, newsOne } from "./events";
 
 // ---------- API ----------
 const BASE: Record<string, (b: Row) => Promise<Response>> = {
@@ -307,6 +307,17 @@ async function handleReq(req: Request): Promise<Response> {
       if (path === "/admin") return await admin(req);
       const im = path.match(/^\/img\/([a-z])\/(\d+)$/);
       if (im && req.method === "GET") return await imgResponse(im[1], Number(im[2]), url.searchParams.get("v") ?? "");
+      const nm = path.match(/^\/api\/news\/hayday(?:\/(latest|events|\d+))?$/);
+      if (nm) {
+        if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+        if (req.method !== "GET") throw new Fail("invalid", 405);
+        if ((await getSet("maint_on")) === "1") throw new Fail("maintenance", 503);
+        const k = nm[1];
+        if (k === "events") return json({ ok: true, ...(await listEvents()) });
+        if (k && /^\d+$/.test(k)) { const it = await newsOne(Number(k)); if (!it) throw new Fail("not_found", 404); return json({ ok: true, item: it }); }
+        const all = await listNews();
+        return json({ ok: true, ...all, items: k === "latest" ? [...all.items].sort((a, b) => b.date - a.date).slice(0, 5) : all.items });
+      }
       const m = path.match(/^\/api\/(\w+)(?:\.php)?$/);
       if (m) {
         if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
