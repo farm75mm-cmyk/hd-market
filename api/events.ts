@@ -14,6 +14,7 @@ await run(`CREATE TABLE IF NOT EXISTS hd_event_rules (id ${serial}, name TEXT NO
 await run(`CREATE TABLE IF NOT EXISTS hd_news (id ${serial}, title TEXT NOT NULL, title_en TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', body_en TEXT NOT NULL DEFAULT '', cat TEXT NOT NULL DEFAULT 'news',
   image TEXT, link TEXT NOT NULL DEFAULT '', pinned INT NOT NULL DEFAULT 0, published_at BIGINT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', ext_id TEXT NOT NULL DEFAULT '', active INT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
 
+try { await run(`ALTER TABLE hd_events ADD COLUMN pinned INT NOT NULL DEFAULT 0`); } catch {}
 try { await run(`ALTER TABLE hd_news ADD COLUMN tr_edited INT NOT NULL DEFAULT 0`); } catch {}
 
 export const NCATS: [string, string][] = [["events", "أحداث"], ["updates", "تحديثات"], ["news", "أخبار"]];
@@ -29,7 +30,7 @@ const MAX_LEN = 60 * 86400, KEEP_ENDED = 3 * 86400;
 const defImg = (kind: string) => `${WEB_ORIGIN}/img/events/${KIND_OK.has(kind) ? kind : "other"}.svg`;
 const status = (s: number, e: number, n: number) => (n >= e ? "ended" : n >= s ? "running" : "upcoming");
 
-type Ev = { id: string; name: string; name_en: string; kind: string; image: string; start: number; end: number; rewards: string; rewards_en: string; status: string; auto: number };
+type Ev = { id: string; name: string; name_en: string; kind: string; image: string; start: number; end: number; rewards: string; rewards_en: string; status: string; auto: number; pin?: number };
 
 /** Expand weekly rules into concrete occurrences around now. */
 async function ruleEvents(n: number): Promise<Ev[]> {
@@ -49,11 +50,11 @@ async function ruleEvents(n: number): Promise<Ev[]> {
 
 export async function listEvents(): Promise<{ now: number; updated_at: number; events: Ev[] }> {
   const n = nowS();
-  const rows = await run(`SELECT e.id, e.name, e.name_en, e.kind, e.rewards, e.rewards_en, e.start_at, e.end_at, e.updated_at, ${IMG("image", "e.")} FROM hd_events e WHERE e.active = 1 AND e.end_at > $1 ORDER BY e.start_at, e.id`, [n - KEEP_ENDED]);
-  const evs: Ev[] = rows.map((r) => ({ id: "e" + r.id, name: r.name, name_en: r.name_en || "", kind: r.kind, image: imgUrl("e", r) ?? defImg(r.kind), start: num(r.start_at), end: num(r.end_at), rewards: r.rewards || "", rewards_en: r.rewards_en || "", status: status(num(r.start_at), num(r.end_at), n), auto: 0 }));
+  const rows = await run(`SELECT e.id, e.name, e.name_en, e.kind, e.rewards, e.rewards_en, e.start_at, e.end_at, e.updated_at, e.pinned, ${IMG("image", "e.")} FROM hd_events e WHERE e.active = 1 AND e.end_at > $1 ORDER BY e.start_at, e.id`, [n - KEEP_ENDED]);
+  const evs: Ev[] = rows.map((r) => ({ id: "e" + r.id, name: r.name, name_en: r.name_en || "", kind: r.kind, image: imgUrl("e", r) ?? defImg(r.kind), start: num(r.start_at), end: num(r.end_at), rewards: r.rewards || "", rewards_en: r.rewards_en || "", status: status(num(r.start_at), num(r.end_at), n), auto: 0, pin: num(r.pinned) }));
   for (const x of await ruleEvents(n)) if (x.end > n - KEEP_ENDED) evs.push(x);
   const order: Record<string, number> = { running: 0, upcoming: 1, ended: 2 };
-  evs.sort((a, b) => order[a.status] - order[b.status] || (a.status === "ended" ? b.end - a.end : a.start - b.start) || a.name.localeCompare(b.name));
+  evs.sort((a, b) => order[a.status] - order[b.status] || (b.pin ?? 0) - (a.pin ?? 0) || (a.status === "ended" ? b.end - a.end : a.start - b.start) || a.name.localeCompare(b.name));
   const upd = Math.max(num((await first(`SELECT MAX(updated_at) m FROM hd_events`))?.m), num((await first(`SELECT MAX(updated_at) m FROM hd_event_rules`))?.m), num(await getSet("ev_sync_at", "0")));
   return { now: n, updated_at: upd, events: evs };
 }
@@ -127,15 +128,20 @@ export async function syncEvents(): Promise<string> {
     if (!r.ok) throw new Error("HTTP " + r.status);
     const text = (await r.text()).slice(0, 2_000_000);
     const items = parseFeed(text).filter((x) => x.e > x.s && x.e - x.s <= MAX_LEN).slice(0, 500);
-    const n = nowS(); let add = 0, upd = 0;
+    const n = nowS(); let add = 0, upd = 0, pushed = 0;
+    const firstRun = (await getSet("ev_first_done")) !== "1";
     for (const x of items) {
       const ex = await first(`SELECT id, source, name, name_en, kind, start_at, end_at, rewards FROM hd_events WHERE ext_id = $1`, [x.ext]);
-      if (!ex) { await run(`INSERT INTO hd_events (name, name_en, kind, image, start_at, end_at, rewards, source, ext_id, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'import',$8,1,$9,$9)`, [x.name, x.name_en, x.kind, x.image || null, x.s, x.e, x.rewards, x.ext, n]); add++; }
+      if (!ex) {
+        const ins = (await run(`INSERT INTO hd_events (name, name_en, kind, image, start_at, end_at, rewards, source, ext_id, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'import',$8,1,$9,$9) RETURNING id`, [x.name, x.name_en, x.kind, x.image || null, x.s, x.e, x.rewards, x.ext, n]))[0]; add++;
+        if (!firstRun && ins && x.e > n && (await getSet("ev_notify", "1")) === "1") { await notifyEventItem(num(ins.id), x.name, x.rewards); pushed++; }
+      }
       else if (ex.source === "import" && (ex.name !== x.name || num(ex.start_at) !== x.s || num(ex.end_at) !== x.e || ex.rewards !== x.rewards || ex.kind !== x.kind)) {
         await run(`UPDATE hd_events SET name=$1, name_en=$2, kind=$3, start_at=$4, end_at=$5, rewards=$6, updated_at=$7 WHERE id=$8`, [x.name, x.name_en, x.kind, x.s, x.e, x.rewards, n, ex.id]); upd++;
       }
     }
-    msg = `تمت المزامنة: ${items.length} حدث في المصدر · جديد ${add} · محدَّث ${upd}`;
+    msg = `تمت المزامنة: ${items.length} حدث في المصدر · جديد ${add} · محدَّث ${upd}` + (pushed ? ` · إشعارات ${pushed}` : "");
+    await putSet("ev_first_done", "1"); await putSet("ev_sync_stats", JSON.stringify([add, upd, pushed]));
     await putSet("ev_sync_ok", "1");
     if (add || upd) await putSet("ev_sync_at", String(n)); else await putSet("ev_sync_at", String(num(await getSet("ev_sync_at", "0")) || n));
   } catch (e: any) { msg = "فشلت المزامنة: " + String(e?.message ?? e).slice(0, 120); await putSet("ev_sync_ok", "0"); }
@@ -243,13 +249,15 @@ export async function articleFrom(url: string): Promise<NewsIn | null> {
   const cat = /update|patch|release/i.test(seg) ? "updates" : /event|season/i.test(seg) ? "events" : guessCat(title + " " + seg);
   return { ext: url, title: title.slice(0, 200), body: body.slice(0, 4000), cat, image: /^https:\/\//.test(img) ? img.slice(0, 600) : "", link: url, date, pinned: 0 };
 }
-async function notifyNewsItem(id: number, title: string, body: string): Promise<number> {
+async function notifyAll(emoji: string, id: number, title: string, body: string, ref: string, screen: string): Promise<number> {
   const t = nowS(), bd = body.replace(/\s+/g, " ").slice(0, 110);
   const users = await run(`SELECT id FROM users`);
-  for (const u of users) await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'announce',$2,$3,$2,$3,$4,$5)`, [u.id, "📰 " + title.slice(0, 120), bd, "NEWS-" + id, t]);
-  await pushAll("📰 " + title.slice(0, 80), bd || "خبر جديد في Hay Day", "news");
+  for (const u of users) await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'announce',$2,$3,$2,$3,$4,$5)`, [u.id, emoji + " " + title.slice(0, 120), bd, ref, t]);
+  await pushAll(emoji + " " + title.slice(0, 80), bd || "جديد في Hay Day", screen);
   return users.length;
 }
+const notifyNewsItem = (id: number, title: string, body: string) => notifyAll("📰", id, title, body, "NEWS-" + id, "news");
+const notifyEventItem = (id: number, title: string, body: string) => notifyAll("📅", id, title, body, "EV-" + id, "events");
 const FRESH = 7 * 86400;
 const maxDays = async () => Math.max(1, num(await getSet("news_max_days", "60")) || 60);
 async function loadItems(url: string): Promise<{ items: (NewsIn & { en?: { title: string; body: string } })[]; skipped: number }> {
@@ -383,9 +391,19 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
         if (f("noimg") === "1") await run(`UPDATE hd_events SET image=NULL WHERE id=$1`, [id]);
         return "تم حفظ الحدث";
       }
-      await run(`INSERT INTO hd_events (name, name_en, kind, start_at, end_at, rewards, rewards_en, active, image, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual',$10,$10)`, [...v, img || null, t]);
+      const ins = (await run(`INSERT INTO hd_events (name, name_en, kind, start_at, end_at, rewards, rewards_en, active, image, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual',$10,$10) RETURNING id`, [...v, img || null, t]))[0];
+      if (ins && v[7] === 1 && e > t && (await getSet("ev_notify", "0")) === "1") { await notifyEventItem(num(ins.id), name, f("rewards").trim()); return "تمت إضافة الحدث وإرسال إشعار به"; }
       return "تمت إضافة الحدث";
     }
+    case "ev_toggle": { const r = await first(`SELECT active FROM hd_events WHERE id = $1`, [id]); if (!r) return "الحدث غير موجود"; await run(`UPDATE hd_events SET active = $1, updated_at = $2 WHERE id = $3`, [num(r.active) ? 0 : 1, t, id]); return num(r.active) ? "تم إيقاف الحدث" : "تم تفعيل الحدث"; }
+    case "ev_pin": { const r = await first(`SELECT pinned FROM hd_events WHERE id = $1`, [id]); if (!r) return "الحدث غير موجود"; await run(`UPDATE hd_events SET pinned = $1, updated_at = $2 WHERE id = $3`, [num(r.pinned) ? 0 : 1, t, id]); return num(r.pinned) ? "أُلغي التثبيت" : "تم تثبيت الحدث"; }
+    case "ev_notify": {
+      const r = await first(`SELECT name, rewards, active FROM hd_events WHERE id = $1`, [id]); if (!r) return "الحدث غير موجود";
+      if (!num(r.active)) return "الحدث موقوف؛ فعّله أولًا";
+      if (await first(`SELECT id FROM notifications WHERE ref = $1 AND created_at > $2`, ["EV-" + id, t - 300])) return "أُرسل إشعار لهذا الحدث قبل لحظات";
+      const n = await notifyEventItem(id, r.name, r.rewards); return `تم إرسال الإشعار إلى ${n} مستخدم (داخل التطبيق + إشعار الجهاز لمن فعّله)`;
+    }
+    case "ev_notify_set": await putSet("ev_notify", f("on") === "1" ? "1" : "0"); return "تم حفظ إعداد الإشعار التلقائي";
     case "ev_del": await run(`DELETE FROM hd_events WHERE id = $1`, [id]); return "تم حذف الحدث";
     case "ev_clone_week": {
       // copy events that started in the last 7 days to the same time next week (skips ones already present)
@@ -465,17 +483,17 @@ export async function evAct(act: string, f: (k: string) => string, id: number): 
 }
 
 export async function eventsPage(ctx: Ctx): Promise<{ title: string; body: string; js?: string }> {
-  const { t, F, hid } = ctx;
+  const { t, F, hid, url: pu } = ctx;
   const n = nowS();
   const kindSel = (cur: string) => `<select class="w" name="kind">${KINDS.map(([k, a]) => `<option value="${k}"${k === cur ? " selected" : ""}>${h(t(a))}</option>`).join("")}</select>`;
   const dt = (name: string, v: number) => `<input type="datetime-local" class="w" name="${name}" value="${v ? toInp(v) : ""}" required>`;
-  const chk = (name: string, label: string, on: boolean) => `<label class="row" style="gap:6px"><input type="checkbox" name="${name}" value="1"${on ? " checked" : ""}> ${h(label)}</label>`;
+  const chk = (name: string, label: string, on: boolean, auto = false) => `<label class="row" style="gap:6px"><input type="checkbox" name="${name}" value="1"${on ? " checked" : ""}${auto ? ` onchange="this.form.submit()"` : ""}> ${h(label)}</label>`;
   const evForm = (e?: Row) => F("ev_save", `${e ? hid("id", e.id) : ""}
     <div class="fg">${field(t("اسم الحدث (عربي)"), `<input type="text" class="w" name="name" maxlength="120" value="${h(e?.name ?? "")}" required>`)}${field(t("الاسم بالإنجليزية"), `<input type="text" class="w" name="name_en" maxlength="120" value="${h(e?.name_en ?? "")}">`)}
     ${field(t("النوع"), kindSel(e?.kind ?? "other"))}${field(t("البداية (توقيت اللعبة UTC)"), dt("start", num(e?.start_at)))}${field(t("النهاية (توقيت اللعبة UTC)"), dt("end", num(e?.end_at)))}
     ${field(t("المكافآت (عربي)"), `<input type="text" class="w" name="rewards" maxlength="400" value="${h(e?.rewards ?? "")}">`)}${field(t("المكافآت بالإنجليزية"), `<input type="text" class="w" name="rewards_en" maxlength="400" value="${h(e?.rewards_en ?? "")}">`)}</div>
     <div class="row" style="margin-top:10px">${chk("active", t("ظاهر في التطبيق"), e ? !!num(e.active) : true)}${picker(e ? imgUrl("e", e) : null)}${e ? chk("noimg", t("إزالة الصورة المخصصة"), false) : ""}<button class="${e ? "" : "y"}">${h(t(e ? "حفظ" : "إضافة الحدث"))}</button></div>`);
-  const rows = await run(`SELECT e.id, e.name, e.name_en, e.kind, e.rewards, e.rewards_en, e.start_at, e.end_at, e.active, e.source, ${IMG("image", "e.")} FROM hd_events e ORDER BY e.start_at DESC, e.id DESC LIMIT 200`);
+  const rows = await run(`SELECT e.id, e.name, e.name_en, e.kind, e.rewards, e.rewards_en, e.start_at, e.end_at, e.active, e.source, e.pinned, ${IMG("image", "e.")} FROM hd_events e ORDER BY e.pinned DESC, e.start_at DESC, e.id DESC LIMIT 200`);
   const rules = await run(`SELECT * FROM hd_event_rules ORDER BY weekday, hour, id`);
   const ruleForm = (r?: Row) => F("rule_save", `${r ? hid("id", r.id) : ""}
     <div class="fg">${field(t("اسم الحدث (عربي)"), `<input type="text" class="w" name="name" maxlength="120" value="${h(r?.name ?? "")}" required>`)}${field(t("الاسم بالإنجليزية"), `<input type="text" class="w" name="name_en" maxlength="120" value="${h(r?.name_en ?? "")}">`)}
@@ -485,34 +503,47 @@ export async function eventsPage(ctx: Ctx): Promise<{ title: string; body: strin
     ${field(t("المدة بالساعات"), `<input type="number" class="w" name="duration_h" min="1" max="336" value="${num(r?.duration_h ?? 24)}" required>`)}
     ${field(t("المكافآت (عربي)"), `<input type="text" class="w" name="rewards" maxlength="400" value="${h(r?.rewards ?? "")}">`)}${field(t("المكافآت بالإنجليزية"), `<input type="text" class="w" name="rewards_en" maxlength="400" value="${h(r?.rewards_en ?? "")}">`)}</div>
     <div class="row" style="margin-top:10px">${chk("active", t("مفعّلة"), r ? !!num(r.active) : true)}<button class="${r ? "" : "y"}">${h(t(r ? "حفظ" : "إضافة قاعدة"))}</button></div>`);
-  const src = await getSet("ev_src_url"), auto = (await getSet("ev_auto", "1")) === "1", syncAt = num(await getSet("ev_sync_at", "0")), tryAt = num(await getSet("ev_sync_try", "0")), msg = await getSet("ev_sync_msg"), syncOk = (await getSet("ev_sync_ok")) === "1";
-  const live = await listEvents();
-  const cnt = (s: string) => live.events.filter((x) => x.status === s).length;
+  const src = await getSet("ev_src_url"), auto = (await getSet("ev_auto", "1")) === "1", tryAt = num(await getSet("ev_sync_try", "0")), msg = await getSet("ev_sync_msg"), syncOk = (await getSet("ev_sync_ok")) === "1", evNotify = (await getSet("ev_notify", "1")) === "1";
+  let st: number[] = [0, 0, 0]; try { st = JSON.parse(await getSet("ev_sync_stats", "[0,0,0]")); } catch {}
   const drafts = rows.filter((e) => e.source === "draft");
   const aiKey = !!env("ANTHROPIC_API_KEY"), aiAuto = (await getSet("ev_ai_auto", "0")) === "1", aiTry = num(await getSet("ev_ai_try", "0")), aiOk = (await getSet("ev_ai_ok")) === "1", aiMsg = await getSet("ev_ai_msg");
+  const sent = new Set((await run(`SELECT DISTINCT ref FROM notifications WHERE ref LIKE 'EV-%'`)).map((r) => String(r.ref)));
+  const f = ["on", "off"].includes(pu.searchParams.get("f") ?? "") ? pu.searchParams.get("f")! : "all";
+  const nOn = rows.filter((r) => num(r.active)).length, nOff = rows.length - nOn;
+  const shown = rows.filter((r) => f === "all" || (f === "on" ? num(r.active) : !num(r.active)));
+  const tile = (lab: string, val: string) => `<div style="flex:1;min-width:0;background:#f5f8fc;border-radius:14px;padding:10px 10px"><div class="sm">${h(lab)}</div><div style="font-weight:900;font-size:14px;margin-top:4px;line-height:1.4">${val}</div></div>`;
+  const when = tryAt ? (() => { const d = new Date((tryAt + 3 * 3600) * 1000), H = d.getUTCHours(); return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}، ${H % 12 || 12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${H < 12 ? "ص" : "م"}`; })() : "—";
+  const dfmt = (v: any) => { const d = new Date(num(v) * 1000); return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+  const tog = (id: string) => `onclick="var d=document.getElementById('${id}');d.open=!d.open"`;
   const draftBox = `<div class="box"><h2>${h(t("تجهيز أحداث الأسبوع تلقائيًا (مسودات للمراجعة)"))}</h2>
     <p class="hint">${h(t("يبحث الذكاء الاصطناعي في الإنترنت عن جدول أحداث الأسبوع ويحفظ ما يجده كمسودات مخفية. لا يظهر شيء للمستخدمين حتى تعتمده أنت. قد يخطئ أو لا يجد شيئًا، لذلك راجع الأوقات قبل الاعتماد."))}${aiKey ? "" : " — " + h(t("يتطلب إضافة مفتاح ANTHROPIC_API_KEY في إعدادات الخادم"))}</p>
     ${F("ev_ai_set", `<div class="row">${chk("auto", t("تجهيز تلقائي كل أحد بعد 13:00 UTC"), aiAuto)}<input type="text" class="w mono" name="model" value="${h(await getSet("ev_ai_model"))}" placeholder="claude-sonnet-5-5" style="max-width:240px"><button>${h(t("حفظ"))}</button></div>`)}
     ${F("ev_draft_run", `<div class="row" style="margin-top:8px"><button class="g">${h(t("تجهيز مسودات الآن"))}</button>${aiTry ? `<span class="sm">${statusChip(aiOk ? "ok" : "bad", aiOk ? t("ناجح") : t("فشل"))} ${fmtT(aiTry)} · ${h(t(aiMsg))}</span>` : ""}</div>`)}
     ${drafts.length ? `<h2 style="margin-top:14px">${h(t("مسودات بانتظار المراجعة"))} (${drafts.length})</h2>` + drafts.map((e) => `<div class="item"><div class="row"><b>${h(e.name)}</b>${statusChip("processing", t(KINDS.find((x) => x[0] === e.kind)?.[1] ?? ""))}<span class="sm">${fmtU(e.start_at)} → ${fmtU(e.end_at)}</span></div>${e.rewards ? `<div class="sm">${h(e.rewards)}</div>` : ""}
       <details><summary>${h(t("تعديل قبل الاعتماد"))}</summary>${evForm(e)}</details><div class="acts">${F("ev_draft_ok", `${hid("id", e.id)}<button class="y s">${h(t("اعتماد ونشر"))}</button>`)}${F("ev_del", `${hid("id", e.id)}<button class="r s">${h(t("حذف"))}</button>`)}</div></div>`).join("") + `<div class="acts">${F("ev_draft_okall", `<button class="y s" onclick="return confirm('${h(t("اعتماد كل المسودات ونشرها؟"))}')">${h(t("اعتماد الكل"))}</button>`)}${F("ev_draft_clear", `<button class="r s" onclick="return confirm('${h(t("حذف كل المسودات؟"))}')">${h(t("حذف كل المسودات"))}</button>`)}</div>` : ""}</div>`;
-  let body = `<p class="hint">${h(t("كل الأوقات بتوقيت اللعبة (UTC). تظهر الأحداث في التطبيق فورًا بعد الحفظ دون تحديث التطبيق، ويُحسب حالها (جارٍ / قادم / منتهٍ) تلقائيًا حسب الوقت."))}</p>
-    <div class="row"><span class="chip ok"><b>${cnt("running")}</b> ${h(t("جارٍ الآن"))}</span><span class="chip processing"><b>${cnt("upcoming")}</b> ${h(t("قادم"))}</span><span class="chip"><b>${cnt("ended")}</b> ${h(t("منتهٍ"))}</span><span class="sm">${h(t("آخر تحديث للبيانات"))}: ${fmtT(live.updated_at)}</span></div>
-    <div class="box"><h2>${h(t("استيراد من مصدر خارجي"))}</h2>
-      <p class="hint">${h(t("لا يوجد API رسمي من Supercell لأحداث Hay Day. إن توفر لديك مصدر موثوق (رابط JSON أو تقويم iCal) ضع رابطه هنا وسيتزامن الخادم معه كل ساعة."))}</p>
-      ${F("ev_src", `<div class="row">${`<input type="url" class="w" name="url" placeholder="https://..." value="${h(src)}" style="min-width:260px;flex:1">`}${chk("auto", t("مزامنة تلقائية كل ساعة"), auto)}<button>${h(t("حفظ المصدر"))}</button></div>`)}
-      ${src ? F("ev_sync", `<div class="row" style="margin-top:8px"><button class="g">${h(t("مزامنة الآن"))}</button>${tryAt ? `<span class="sm">${statusChip(syncOk ? "ok" : "bad", syncOk ? t("ناجحة") : t("فشلت"))} ${fmtT(tryAt)} · ${h(t(msg))}</span>` : ""}</div>`) : ""}
-    </div>
-    ${draftBox}
-    <div class="box"><h2>${h(t("إضافة حدث"))}</h2>${evForm()}</div>
-    <div class="box"><h2>${h(t("جدول أسبوعي متكرر"))}</h2><p class="hint">${h(t("لأحداث تتكرر كل أسبوع في نفس اليوم والساعة (مثلًا يوم الاثنين 08:00 UTC لمدة 24 ساعة). يولّدها الخادم تلقائيًا للأسابيع القادمة دون إعادة إدخالها."))}</p>${ruleForm()}</div>`;
-  if (rules.length) body += `<h2>${h(t("القواعد المتكررة"))}</h2>` + rules.map((r) => `<div class="item"><div class="row"><b>${h(r.name)}</b>${statusChip(num(r.active) ? "ok" : "bad", num(r.active) ? t("مفعّلة") : t("متوقفة"))}<span class="sm">${h(t(DAYS[num(r.weekday)]))} ${String(num(r.hour)).padStart(2, "0")}:${String(num(r.minute)).padStart(2, "0")} UTC · ${num(r.duration_h)}${h(t("س"))}</span></div>
-    <details><summary>${h(t("تعديل"))}</summary>${ruleForm(r)}</details><div class="acts">${F("rule_del", `${hid("id", r.id)}<button class="r s" onclick="return confirm('${h(t("حذف القاعدة؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`).join("");
-  body += `<h2>${h(t("الأحداث"))}</h2>` + (live.events.length || rows.length ? `<div class="acts">${F("ev_clone_week", `<button class="g s" onclick="return confirm('${h(t("نسخ أحداث آخر 7 أيام إلى الأسبوع القادم؟"))}')">${h(t("نسخ أحداث الأسبوع الماضي للأسبوع القادم"))}</button>`)}${F("ev_clear_ended", `<button class="g s" onclick="return confirm('${h(t("حذف كل الأحداث المنتهية؟"))}')">${h(t("حذف المنتهية"))}</button>`)}</div>` : "");
-  body += rows.map((e) => { const st = status(num(e.start_at), num(e.end_at), n); const k = KINDS.find((x) => x[0] === e.kind);
-    return `<div class="item"><div class="row"><img class="th" style="width:44px;height:44px;border-radius:10px;object-fit:cover" src="${h(imgUrl("e", e) ?? defImg(e.kind))}" alt=""><b>${h(e.name)}</b>${statusChip(st === "running" ? "ok" : st === "upcoming" ? "processing" : "bad", t(st === "running" ? "جارٍ الآن" : st === "upcoming" ? "قادم" : "منتهٍ"))}${e.source === "import" ? statusChip("processing", t("مستورد")) : ""}${num(e.active) ? "" : statusChip("bad", t("مخفي"))}<span class="sm">${h(t(k?.[1] ?? ""))} · ${fmtU(e.start_at)} → ${fmtU(e.end_at)}</span></div>
-    <details><summary>${h(t("تعديل"))}</summary>${evForm(e)}</details><div class="acts">${F("ev_del", `${hid("id", e.id)}<button class="r s" onclick="return confirm('${h(t("حذف الحدث؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`; }).join("");
-  return { title: t("أحداث Hay Day"), body, js: PICK_JS };
+  const rulesBox = `<div class="box"><h2>${h(t("جدول أسبوعي متكرر"))}</h2><p class="hint">${h(t("لأحداث تتكرر كل أسبوع في نفس اليوم والساعة (مثلًا يوم الاثنين 08:00 UTC لمدة 24 ساعة). يولّدها الخادم تلقائيًا للأسابيع القادمة دون إعادة إدخالها."))}</p>${ruleForm()}</div>` +
+    (rules.length ? `<h2>${h(t("القواعد المتكررة"))}</h2>` + rules.map((r) => `<div class="item"><div class="row"><b>${h(r.name)}</b>${statusChip(num(r.active) ? "ok" : "bad", num(r.active) ? t("مفعّلة") : t("متوقفة"))}<span class="sm">${h(t(DAYS[num(r.weekday)]))} ${String(num(r.hour)).padStart(2, "0")}:${String(num(r.minute)).padStart(2, "0")} UTC · ${num(r.duration_h)}${h(t("س"))}</span></div>
+    <details><summary>${h(t("تعديل"))}</summary>${ruleForm(r)}</details><div class="acts">${F("rule_del", `${hid("id", r.id)}<button class="r s" onclick="return confirm('${h(t("حذف القاعدة؟"))}')">${h(t("حذف"))}</button>`)}</div></div>`).join("") : "");
+  const body = `<div style="background:linear-gradient(135deg,#0d3b24,#14532d);color:#fff;border-radius:22px;padding:18px 20px;margin-bottom:16px"><h2 style="margin:0 0 6px;color:#fff">🌾 ${h(t("أحداث Hay Day"))}</h2>
+    <div style="opacity:.9;line-height:1.7">${h(t("تظهر في التطبيق فورًا، ويُحسب حالها (جارٍ / قادم / منتهٍ) تلقائيًا بتوقيت اللعبة UTC."))}</div>${src ? `<div class="mono" style="opacity:.7;margin-top:4px;font-size:13px;direction:ltr;text-align:start">${h(src)}</div>` : ""}</div>
+    <div class="box"><div class="row" style="gap:10px">${tile(t("آخر مزامنة"), tryAt ? h(when) : "—")}${tile(t("الحالة"), tryAt ? (syncOk ? `<span style="color:#1b8a4b">✅ ${h(t("ناجحة"))}</span>` : `<span style="color:#c62828">❌ ${h(t("فشلت"))}</span>`) : "—")}${tile(t("عدد الأحداث"), String(rows.length))}</div>
+    <p class="sm" style="margin:12px 0 4px">${h(t("آخر مزامنة"))}: ${h(t("جديد"))} ${st[0]}، ${h(t("محدّث"))} ${st[1]}، ${h(t("إشعارات"))} ${st[2]}${!syncOk && msg ? ` — ${h(t(msg))}` : ""}</p>
+    ${F("ev_notify_set", `<div class="row" style="margin:6px 0">${chk("on", "🔔 " + t("إرسال إشعار تلقائي عند نزول حدث جديد"), evNotify, true)}</div>`)}
+    <div class="row" style="margin-top:10px;gap:10px"><div style="flex:1;min-width:150px">${F("ev_sync", `<button class="g" style="width:100%;background:#22b35a;color:#fff;padding:16px;font-size:17px;border-radius:16px">↻ ${h(t("مزامنة الآن"))}</button>`)}</div>
+    <button type="button" ${tog("addev")} style="flex:1;min-width:150px;background:#111;color:#f5c542;padding:16px;font-size:17px;border-radius:16px">➕ ${h(t("إضافة حدث يدويًا"))}</button></div>
+    <details id="addev" style="margin-top:12px"><summary style="display:none"></summary>${evForm()}</details>
+    <details style="margin-top:12px"><summary class="sm" style="cursor:pointer">⚙️ ${h(t("إعدادات المصدر"))}</summary>
+    <p class="hint">${h(t("لا يوجد API رسمي من Supercell لأحداث Hay Day. إن توفر لديك مصدر موثوق (رابط JSON أو تقويم iCal) ضع رابطه هنا وسيتزامن الخادم معه كل ساعة."))}</p>
+    ${F("ev_src", `<div class="row"><input type="url" class="w" name="url" placeholder="https://..." value="${h(src)}" style="min-width:260px;flex:1">${chk("auto", t("مزامنة تلقائية كل ساعة"), auto)}<button>${h(t("حفظ المصدر"))}</button></div>`)}
+    <div class="acts">${F("ev_clone_week", `<button class="g s" onclick="return confirm('${h(t("نسخ أحداث آخر 7 أيام إلى الأسبوع القادم؟"))}')">${h(t("نسخ أحداث الأسبوع الماضي للأسبوع القادم"))}</button>`)}${F("ev_clear_ended", `<button class="g s" onclick="return confirm('${h(t("حذف كل الأحداث المنتهية؟"))}')">${h(t("حذف المنتهية"))}</button>`)}</div>
+    ${draftBox}${rulesBox}</details></div>
+    <div class="box"><div class="tabs">${([["all", "الكل", rows.length], ["on", "الظاهرة للعملاء", nOn], ["off", "الموقوفة", nOff]] as [string, string, number][]).map(([k, l, c]) => `<a href="/admin?tab=events&f=${k}" class="${f === k ? "on" : ""}">${k === "on" ? "✅ " : k === "off" ? "⛔ " : ""}${h(t(l))} (${c})</a>`).join("")}</div>
+    ${shown.filter((e) => e.source !== "draft").map((e) => { const off = !num(e.active), s = status(num(e.start_at), num(e.end_at), n), k = KINDS.find((x) => x[0] === e.kind); return `<div class="item" style="${off ? "opacity:.75" : ""}"><div class="hd"><img class="th" style="width:76px;height:56px;border-radius:10px" src="${h(imgUrl("e", e) ?? defImg(e.kind))}" alt=""><div>
+      <div style="font-weight:800;font-size:16px;line-height:1.6${off ? ";text-decoration:line-through" : ""}">${h(e.name)}</div><div class="sm">${h(t(k?.[1] ?? ""))} · ${dfmt(e.start_at)}</div>
+      <div class="row" style="margin-top:8px">${e.source === "import" ? statusChip("ok", "✅ " + t("رسمي")) : statusChip("processing", t("يدوي"))}${statusChip(s === "running" ? "ok" : s === "upcoming" ? "processing" : "cancelled", t(s === "running" ? "جارٍ الآن" : s === "upcoming" ? "قادم" : "منتهٍ"))}${num(e.pinned) ? statusChip("new", "📌 " + t("مثبّت")) : ""}${sent.has("EV-" + e.id) ? statusChip("processing", "🔔 " + t("أُرسل إشعار")) : ""}${off ? statusChip("bad", "⛔ " + t("موقوف")) : ""}</div></div></div>
+      <div class="acts">${F("ev_toggle", `${hid("id", e.id)}<button class="g s">${off ? "✅ " + h(t("تفعيل")) : "⛔ " + h(t("إيقاف"))}</button>`)}${F("ev_pin", `${hid("id", e.id)}<button class="g s">${num(e.pinned) ? h(t("إلغاء التثبيت")) : "📌 " + h(t("تثبيت"))}</button>`)}${F("ev_notify", `${hid("id", e.id)}<button class="g s" onclick="return confirm('${h(t("إرسال إشعار بهذا الحدث لجميع المستخدمين؟"))}')">🔔 ${h(t("إشعار"))}</button>`)}<button type="button" class="g s" ${tog("evt" + e.id)}>✏️ ${h(t("الترجمة"))}</button></div>
+      <details id="evt${e.id}" style="margin-top:8px"><summary style="display:none"></summary>${evForm(e)}<div class="acts">${F("ev_del", `${hid("id", e.id)}<button class="r s" onclick="return confirm('${h(t("حذف الحدث؟"))}')">🗑 ${h(t("حذف"))}</button>`)}</div></details></div>`; }).join("") || `<p class="hint">${h(t("لا توجد أحداث."))}</p>`}</div>`;
+  return { title: "📅 " + t("أحداث Hay Day"), body, js: PICK_JS };
 }
 
 export async function newsPage(ctx: Ctx): Promise<{ title: string; body: string; js?: string }> {

@@ -935,7 +935,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     const k = (location.hash || "").replace(/^#\/?/, "");
     if (!k || !TOKEN || $("app").hidden) return;
     const go = { home: () => { tab = 0; HD.page = null; drawShop(); }, orders: () => { tab = 1; HD.page = null; drawShop(); }, wallet: () => { tab = 2; HD.page = null; drawShop(); }, support: () => { tab = 4; HD.page = null; drawShop(); },
-      news: () => { tab = 6; HD.page = null; drawShop(); }, notifs: () => { tab = 5; HD.page = "alerts"; drawShop(); }, ai: () => aiOpen(), update: () => forceUpdate((HD.cfg && HD.cfg.force_update) || LSg("fu", "0")) }[k];
+      events: () => evOpen(), news: () => { tab = 6; HD.page = null; drawShop(); }, notifs: () => { tab = 5; HD.page = "alerts"; drawShop(); }, ai: () => aiOpen(), update: () => forceUpdate((HD.cfg && HD.cfg.force_update) || LSg("fu", "0")) }[k];
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
     if (go) { closeX(); opt = false; axe = false; go(); scrollTo(0, 0); }
   }
@@ -1023,7 +1023,7 @@ const CSS_TEXT=".xb{position:sticky;top:0;z-index:40;background:#E8A900;color:#1
     else if (a == "myorders") { HD.page = "myorders"; drawShop(); }
     else if (a == "chkupd") checkUpdate();
     else if (a == "readall") { await call("notif_read", { all: 1 }); drawPage(); }
-    else if (a == "notif") { const nb = b.querySelector(".xnw"); if (nb) { nb.remove(); b.classList.remove("xun"); b.style.opacity = ".7"; b.style.borderColor = ""; HD.unread = Math.max(0, (HD.unread || 0) - 1); drawBadges(); const c = $("xnc"); if (c) { c.textContent = HD.unread; c.hidden = !HD.unread; } call("notif_read", { id: +i }); } { const rf = b.dataset.ref || ""; if (/^ORD-\d+$/.test(rf)) openFarmOrder(+rf.slice(4), true); else if (/^NEWS-\d+$/.test(rf)) { const nid = +rf.slice(5); closeX(); opt = false; axe = false; HD.page = null; tab = 6; drawShop(); scrollTo(0, 0); nwLoad().then(() => nwOpen(nid)); } } }
+    else if (a == "notif") { const nb = b.querySelector(".xnw"); if (nb) { nb.remove(); b.classList.remove("xun"); b.style.opacity = ".7"; b.style.borderColor = ""; HD.unread = Math.max(0, (HD.unread || 0) - 1); drawBadges(); const c = $("xnc"); if (c) { c.textContent = HD.unread; c.hidden = !HD.unread; } call("notif_read", { id: +i }); } { const rf = b.dataset.ref || ""; if (/^ORD-\d+$/.test(rf)) openFarmOrder(+rf.slice(4), true); else if (/^EV-\d+$/.test(rf)) { closeX(); opt = false; axe = false; HD.page = null; evOpen(); } else if (/^NEWS-\d+$/.test(rf)) { const nid = +rf.slice(5); closeX(); opt = false; axe = false; HD.page = null; tab = 6; drawShop(); scrollTo(0, 0); nwLoad().then(() => nwOpen(nid)); } } }
     else if (a == "logoutask") xsheet(`<h2>${xt("logout")}</h2><p class="xmut">${xt("logoutq")}</p><button class="go" style="background:#c52b50" data-x="logoutyes"><span>${xt("logout")}</span></button><button class="go" style="margin-top:10px;background:var(--field);color:var(--ink);box-shadow:none" data-x="closex"><span>${xt("cancel")}</span></button>`);
     else if (a == "logoutyes") { closeX(); leave(); }
   }, true);
