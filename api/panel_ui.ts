@@ -48,7 +48,7 @@ export const tile = (i: number, icon: string, size = 52) => { const [bg, fg] = T
 
 export type NavItem = [string, string, string]; // [tab, icon, label]
 export const NAV: { title?: string; items: NavItem[] }[] = [
-  { items: [["farm_orders", "bag", "طلبات المزارع"], ["farm_delivery", "truck", "تسليم المزارع"], ["farm_links", "check", "طلبات ربط المزارع"], ["tool_orders", "list", "طلبات الأدوات والمنتجات"], ["opt_orders", "box", "طلبات منتجات اختياري"], ["codes", "key", "أكواد الاشتراك وطلباتها"]] },
+  { items: [["farm_orders", "bag", "طلبات المزارع"], ["farm_delivery", "truck", "إدارة تسليم المزارع"], ["tool_orders", "list", "طلبات الأدوات والمنتجات"], ["opt_orders", "box", "طلبات منتجات اختياري"], ["codes", "key", "أكواد الاشتراك وطلباتها"]] },
   { title: "المدفوعات والمحفظة", items: [["deposits", "wallet", "طلبات الشحن"], ["methods", "card", "طرق الدفع"], ["rates", "chart", "أسعار العملات"], ["ledger", "shield", "سجل المحفظة الآمن"], ["deposit_history", "clock", "الإيداعات (السابقة)"]] },
   { title: "المتجر والمنتجات", items: [["categories", "store", "أقسام المتجر والأدوات"], ["farms", "home", "المزارع"], ["farm_data", "key", "بيانات المزارع (ID / Token)"], ["opt_prices", "tag", "منتجات اختياري – الأسعار"], ["random", "box", "المنتجات العشوائية"]] },
   { title: "العملاء والتواصل", items: [["users", "users", "المستخدمون والأرصدة"], ["support", "headset", "دعم العملاء"], ["groups", "chat", "المجموعات"], ["announcements", "bell", "الإعلانات"], ["news", "file", "أخبار Hay Day"], ["events", "clock", "أحداث Hay Day"], ["push", "bell", "إرسال إشعار التحديث"], ["ai", "chat", "إدارة المساعد الذكي"]] },

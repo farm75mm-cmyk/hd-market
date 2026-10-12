@@ -1,6 +1,6 @@
 // Admin panel: page renderers (each returns the page title + body HTML).
 import { run, first, count, num, nowS, h, CURRENCIES, DEC, CNAMES, getRates, getSet, STATUS_AR, FLOW, toUsdt, r4, ADMIN_USER, ADMIN_EMAIL } from "./core";
-import { IMG, imgUrl, optPrice } from "./shop";
+import { IMG, imgUrl, optPrice, STAGES, STAGE_L } from "./shop";
 import { aiPage } from "./assist";
 import { pushPage } from "./broadcast";
 import { eventsPage, newsPage } from "./events";
@@ -38,10 +38,7 @@ async function ordersList(ctx: Ctx, where: string, params: any[], opts: { delive
     const pending = ["new", "processing"].includes(o.status);
     const tagHtml = o.farm_tag ? `<div class="sm" dir="ltr" style="text-align:right"><b>Tag:</b> #${h(o.farm_tag)} · ${h(t("سعة المخزن"))}: ${num(o.farm_cap)}</div>` : "";
     let typeHtml = "";
-    if (o.kind === "farm") {
-      const lk = await first(`SELECT id, email, token FROM farm_links WHERE order_id = $1`, [o.id]);
-      typeHtml = lk ? `<div class="sm" dir="ltr" style="text-align:right;margin-top:6px">${statusChip("done", t("مزرعة مربوطة بالبريد"))} <b>${h(lk.email)}</b> · <a href="/admin?tab=farm_links&q=${encodeURIComponent(lk.email)}">${h(t("طلب الربط"))} #${num(lk.id)}</a></div<details style="margin-top:6px"><summary>${h(t("عرض التوكن (حساس)"))}</summary><div class="mono sm" dir="ltr" style="background:#f5f6fa;border-radius:10px;padding:8px 10px;margin-top:6px;word-break:break-all">${h(lk.token)}</div></details>` : `<div class="sm" style="margin-top:6px">${statusChip("new", t("مزرعة تجريبية (Test Farm)"))}</div>`;
-    }
+    if (o.kind === "farm") typeHtml = `<div class="sm" style="margin-top:6px">${statusChip(o.ftype === "email" ? "ok" : "new", t(o.ftype === "email" ? "مربوطة بالبريد" : "مزرعة توكن"))} ${o.stage ? statusChip(FD_ST_CHIP[o.stage] ?? "new", t(STAGE_L[o.stage]?.[0] ?? o.stage)) : ""}${o.link_email ? ` <b dir="ltr">${h(o.link_email)}</b>` : ""}</div>`;
     const lineHtml = typeHtml + tagHtml + (lines.length ? `<details><summary>${h(t("تفاصيل الطلب"))} (${lines.length})</summary><div class="sm" style="margin-top:6px">${lines.map((l) => `<div>${h(l.n)} × ${num(l.q)}${l.prize ? ` → <b>${h(l.prize)}</b>` : ""}</div>`).join("")}</div></details>` : "");
     const act: string[] = [];
     if (pending) {
@@ -430,38 +427,60 @@ async function settingsPage(ctx: Ctx): Promise<Page> {
     <button class="y">${h(t("حفظ"))}</button>`)}</div>` };
 }
 
-// ---------- farm <-> e-mail link requests ----------
-const LINK_AR: Record<string, string> = { review: "قيد المراجعة", linked: "تم ربط المزرعة", failed: "فشل الربط", rejected: "رفض الطلب" };
-const LINK_CHIP: Record<string, string> = { review: "processing", linked: "done", failed: "bad", rejected: "cancelled" };
-async function farmLinksPage(ctx: Ctx): Promise<Page> {
-  const { t, F, hid } = ctx; const pg = pageNo(ctx), per = 30;
-  const st = ctx.url.searchParams.get("st") ?? "all", q = (ctx.url.searchParams.get("q") ?? "").trim().toLowerCase();
-  const params: any[] = []; let where = "1=1";
-  if (["review", "linked", "failed", "rejected"].includes(st)) { params.push(st); where += ` AND l.status = $${params.length}`; }
-  if (q) { params.push("%" + q + "%"); where += ` AND (LOWER(u.username) LIKE $${params.length} OR l.email LIKE $${params.length})`; }
-  const total = await count(`SELECT COUNT(*) c FROM farm_links l LEFT JOIN users u ON u.id = l.user_id WHERE ${where}`, params);
-  const rows = await run(`SELECT l.*, u.username FROM farm_links l LEFT JOIN users u ON u.id = l.user_id WHERE ${where} ORDER BY l.id DESC LIMIT ${per} OFFSET ${(pg - 1) * per}`, params);
-  let out = `<p class="hint">${h(t("بعد ربط المزرعة بالبريد من جهتك اضغط «تم ربط المزرعة» ليصل المستخدم إشعار ويستطيع متابعة الشراء. رمز التحقق من البريد لا يُعرض هنا ولا يُخزَّن كنص."))}</p>${chips(ctx, "st", [["all", "الكل"], ["review", "قيد المراجعة"], ["linked", "تم ربط المزرعة"], ["failed", "فشل الربط"], ["rejected", "رفض الطلب"]], st)}${searchBox(ctx, q, "ابحث باسم المستخدم أو البريد")}`;
-  for (const l of rows) {
-    const logs = await run(`SELECT * FROM farm_link_log WHERE link_id = $1 ORDER BY id DESC LIMIT 30`, [l.id]);
-    const locked = num(l.order_id) !== 0;
-    out += `<div class="item"><div class="hd"><div><b>#${num(l.id)} · ${h(l.username ?? "—")}</b> ${statusChip(LINK_CHIP[l.status] ?? "new", t(LINK_AR[l.status] ?? l.status))} ${num(l.verified) ? statusChip("ok", t("البريد موثّق")) : statusChip("bad", t("غير موثّق"))}${locked ? ` <span class="chip">${h(t("استُخدم في شراء"))}</span>` : ""}<br>
-      <span class="sm">${h(t("المزرعة"))}: <b>${h(l.farm_name)}</b> · ${fmtT(l.created_at)}</span></div></div>
-      <div class="sm" dir="ltr" style="text-align:right;margin-top:8px"><b>Email:</b> ${h(l.email)}</div>
-      <div class="mono sm" style="background:#f5f6fa;border-radius:10px;padding:8px 10px;margin-top:6px;white-space:pre-wrap;word-break:break-all"><b>Token:</b> ${h(l.token)}</div>
-      ${locked ? "" : `<div class="acts" style="margin-top:10px">${F("link_set", `${hid("id", l.id)}${hid("status", "linked")}<input type="text" name="note" placeholder="${h(t("ملاحظة للمستخدم (اختياري)"))}" value="${h(l.admin_note ?? "")}" style="min-width:150px"><button class="g">${h(t("تم ربط المزرعة"))}</button>`)}</div>
-      ${F("link_set", `${hid("id", l.id)}<div class="row" style="margin-top:8px"><select name="status">${["review", "linked", "failed", "rejected"].map((k) => `<option value="${k}"${l.status === k ? " selected" : ""}>${h(t(LINK_AR[k]))}</option>`).join("")}</select><input type="text" class="grow" name="note" placeholder="${h(t("ملاحظة (تظهر للمستخدم عند الفشل أو الرفض)"))}" value="${h(l.admin_note ?? "")}"><button class="y">${h(t("حفظ الحالة"))}</button></div>`)}`}
-      <details style="margin-top:8px"><summary>${h(t("سجل التعديلات"))} (${logs.length})</summary><div class="sm" style="margin-top:6px">${logs.map((g) => `<div>${fmtT(g.created_at)} · ${h(String(g.actor).startsWith("user:") ? t("المستخدم") : g.actor)} · ${h(g.from_status ? t(LINK_AR[g.from_status] ?? g.from_status) + " ← " : "")}<b>${h(t(LINK_AR[g.to_status] ?? g.to_status))}</b>${g.note ? " · " + h(g.note) : ""}</div>`).join("")}</div></details></div>`;
+// ---------- farm delivery management ----------
+const FD_ST_CHIP: Record<string, string> = { created: "new", paid: "processing", awaiting_info: "pending", verifying: "under_review", preparing: "processing", linked: "ok", delivered: "done", action_required: "bad" };
+const FD_STEPS: Record<string, string[]> = { token: ["created", "paid", "preparing", "delivered"], email: ["created", "paid", "awaiting_info", "verifying", "preparing", "linked", "delivered"] };
+const FD_QUICK = ["تم استلام طلبك بنجاح", "تم تأكيد الدفع، وجارٍ تجهيز المزرعة", "يرجى إكمال خطوة التحقق المطلوبة", "تم ربط المزرعة بنجاح", "اكتملت عملية تسليم المزرعة", "تعذّر إكمال العملية، يرجى التواصل مع الدعم"];
+const fdBar = (type: string, stage: string, status: string, t: (s: string) => string) => {
+  const steps = FD_STEPS[type] ?? FD_STEPS.token; const idx = Math.max(0, steps.indexOf(stage === "action_required" ? "preparing" : stage));
+  const done = status === "done", dead = status === "cancelled";
+  return `<div class="pbar">${steps.map((k, i) => `<i class="${dead ? "" : done || i < idx ? "on" : i === idx ? "cur" : ""}" title="${h(t(STAGE_L[k][0]))}"></i>`).join("")}</div>`;
+};
+async function farmDeliveryPage(ctx: Ctx): Promise<Page> {
+  const { t, F, hid } = ctx; const pg = pageNo(ctx), per = 20, sp = ctx.url.searchParams;
+  const q = (sp.get("q") ?? "").trim(), type = sp.get("type") ?? "all", stg = sp.get("stage") ?? "all", st = sp.get("st") ?? "open";
+  const params: any[] = []; let where = "o.kind = 'farm'";
+  if (st === "open") where += " AND o.status IN ('new','processing')"; else if (st === "done") where += " AND o.status = 'done'"; else if (st === "cancelled") where += " AND o.status = 'cancelled'";
+  if (type === "token" || type === "email") { params.push(type); where += ` AND o.ftype = $${params.length}`; }
+  if (STAGES.includes(stg)) { params.push(stg); where += ` AND o.stage = $${params.length}`; }
+  if (q) { const n = Number(q.replace(/^#/, "")); params.push("%" + q.toLowerCase() + "%"); where += ` AND (LOWER(u.username) LIKE $${params.length}`; if (Number.isInteger(n) && n > 0) { params.push(n); where += ` OR o.id = $${params.length}`; } where += ")"; }
+  const total = await count(`SELECT COUNT(*) c FROM orders o LEFT JOIN users u ON u.id = o.user_id WHERE ${where}`, params);
+  const rows = await run(`SELECT o.*, u.username, u.avatar FROM orders o LEFT JOIN users u ON u.id = o.user_id WHERE ${where} ORDER BY o.id DESC LIMIT ${per} OFFSET ${(pg - 1) * per}`, params);
+  const rt = await getRates();
+  const style = `<style>.pbar{display:flex;gap:4px;margin:10px 0}.pbar i{flex:1;height:8px;border-radius:6px;background:#e6e9f2}.pbar i.on{background:#1f9d55}.pbar i.cur{background:linear-gradient(90deg,#e8a900,#ffd45a,#e8a900);background-size:200% 100%;animation:pbm 1.1s linear infinite}@keyframes pbm{to{background-position:-200% 0}}.av{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#eceff4;display:inline-grid;place-items:center;font-weight:800;vertical-align:middle;margin-inline-end:8px}</style>`;
+  const sel = (name: string, cur: string, opts: [string, string][]) => `<select name="${name}">${opts.map(([k, l]) => `<option value="${k}"${cur === k ? " selected" : ""}>${h(t(l))}</option>`).join("")}</select>`;
+  let out = style + `<p class="hint">${h(t("اختيار المستخدم (مزرعة توكن / مربوطة بالبريد) يصل هنا تلقائيًا. حدّث المرحلة وأرسل رسالة للمستخدم، ثم اضغط «تم التسليم» بعد إكمال العملية فعليًا."))}</p>
+    ${chips(ctx, "st", [["open", "جارية"], ["done", "مكتملة"], ["cancelled", "ملغاة"], ["all", "الكل"]], st)}
+    <form method="get" class="row" style="margin-bottom:12px;flex-wrap:wrap"><input type="hidden" name="tab" value="farm_delivery"><input type="hidden" name="st" value="${h(st)}"><input type="search" class="grow" name="q" value="${h(q)}" placeholder="${h(t("رقم الطلب أو اسم المستخدم"))}">
+      ${sel("type", type, [["all", "كل الأنواع"], ["token", "مزرعة توكن"], ["email", "مربوطة بالبريد"]])}${sel("stage", stg, [["all", "كل المراحل"], ...STAGES.map((k) => [k, STAGE_L[k][0]] as [string, string])])}<button class="y">${h(t("بحث"))}</button></form>`;
+  for (const o of rows) {
+    const usdt = num(o.usdt) || toUsdt(num(o.total), o.currency ?? "JOD", rt), open = ["new", "processing"].includes(o.status), stage = o.stage || "paid";
+    const evs = await run(`SELECT * FROM order_events WHERE order_id = $1 ORDER BY id DESC LIMIT 40`, [o.id]);
+    const av = o.avatar ? `<img class="av" src="${h(o.avatar)}" alt="">` : `<span class="av">${h(String(o.username ?? "?").slice(0, 1).toUpperCase())}</span>`;
+    out += `<div class="item"><div class="hd"><div>${av}<b>#${num(o.id)} · ${h(o.username ?? "—")}</b><br>
+      <span class="sm">${h(o.product_name)} · ${statusChip(FD_ST_CHIP[stage] ?? "new", t(STAGE_L[stage]?.[0] ?? stage))} ${statusChip(o.ftype === "email" ? "ok" : "new", t(o.ftype === "email" ? "مربوطة بالبريد" : "مزرعة توكن"))} ${o.status === "cancelled" ? statusChip("cancelled", t("ملغي · مُسترد")) : statusChip("done", t("مدفوع"))}</span></div></div>
+      ${fdBar(o.ftype, stage, o.status, t)}
+      <div class="sm"><b dir="ltr">${money(o.total)} ${h(o.currency)}</b> ≈ ${priceTxt(usdt)} · ${fmtT(o.created_at)}</div>
+      ${o.ftype === "email" ? `<div class="sm" dir="ltr" style="text-align:right;margin-top:6px"><b>Email:</b> ${o.link_email ? h(o.link_email) : "—"} ${num(o.link_verified) ? statusChip("ok", t("البريد موثّق")) : statusChip("bad", t("لم يُوثَّق بعد"))}</div>` : ""}
+      ${o.user_msg ? `<div class="sm" style="margin-top:6px"><b>${h(t("آخر رسالة للمستخدم"))}:</b> ${h(o.user_msg)}</div>` : ""}
+      ${open ? `${F("fd_stage", `${hid("id", o.id)}<div class="fg" style="margin-top:10px"><div><label class="f">${h(t("مرحلة التسليم"))}</label>${sel("stage", stage, STAGES.filter((k) => k !== "delivered" && (o.ftype === "email" || !["awaiting_info", "verifying", "linked"].includes(k))).map((k) => [k, STAGE_L[k][0]] as [string, string]))}</div>
+        <div><label class="f">${h(t("رد جاهز"))}</label><select onchange="if(this.value)this.form.msg.value=this.value"><option value="">—</option>${FD_QUICK.map((m) => `<option value="${h(m)}">${h(t(m))}</option>`).join("")}</select></div></div>
+        <label class="f">${h(t("ملاحظات داخلية (لا تظهر للمستخدم)"))}</label><textarea name="note" rows="2">${h(o.admin_note ?? "")}</textarea>
+        <label class="f">${h(t("رسالة تظهر للمستخدم (اختياري)"))}</label><textarea name="msg" rows="2" placeholder="${h(t("تُرسل كإشعار للمستخدم"))}"></textarea>
+        <div class="acts"><button class="y">${h(t("تحديث الحالة وإرسال إشعار"))}</button></div>`)}
+        <div class="acts">${F("order_deliver", `${hid("id", o.id)}<div class="row"><input type="text" name="note" placeholder="${h(t("ملاحظة للمشتري (اختياري)"))}" style="min-width:150px"><button class="g" onclick="return confirm('${h(t("تأكيد أن التسليم تم فعليًا؟"))}')">${h(t("تم التسليم"))}</button></div>`, "&st=open")}
+        ${F("order_status", `${hid("id", o.id)}${hid("status", "cancelled")}<button class="r" onclick="return confirm('${h(t("إلغاء الطلب وإرجاع المبلغ للمستخدم؟"))}')">${h(t("إلغاء وإرجاع"))}</button>`)}</div>` : ""}
+      <details style="margin-top:8px"><summary>${h(t("سجل الطلب"))} (${evs.length})</summary><div class="sm" style="margin-top:6px">${evs.map((g) => `<div>${fmtT(g.created_at)} · ${h(String(g.actor).startsWith("user:") ? t("المستخدم") : g.actor)} · ${h(g.from_stage ? t(STAGE_L[g.from_stage]?.[0] ?? g.from_stage) + " ← " : "")}<b>${h(t(STAGE_L[g.to_stage]?.[0] ?? g.to_stage))}</b>${g.kind === "msg" ? " · 💬" : ""}${g.note && g.kind !== "stage" ? " · " + h(g.note) : g.note && String(g.actor).startsWith("user:") ? "" : g.note ? " · " + h(g.note) : ""}</div>`).join("")}</div></details></div>`;
   }
-  if (!rows.length) out += `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد طلبات ربط."))}</div>`;
-  return { title: t("طلبات ربط المزارع"), body: out + pager(ctx, total, pg) };
+  if (!rows.length) out += `<div class="box" style="text-align:center;color:#6b7488">${h(t("لا توجد طلبات تسليم."))}</div>`;
+  return { title: t("إدارة تسليم المزارع"), body: out + pager(ctx, total, pg) };
 }
 
 export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
   switch (tab) {
     case "farm_orders": return ordersPage(ctx, "farm", "طلبات المزارع");
-    case "farm_links": return farmLinksPage(ctx);
-    case "farm_delivery": return ordersPage(ctx, "farm", "تسليم المزارع", "اضغط «تسليم» لإرسال ID / Token للمشتري وإكمال الطلب. أدخل البيانات أولًا من «بيانات المزارع».");
+    case "farm_delivery": return farmDeliveryPage(ctx);
+    case "farm_delivery_old": return ordersPage(ctx, "farm", "تسليم المزارع", "اضغط «تسليم» لإرسال ID / Token للمشتري وإكمال الطلب. أدخل البيانات أولًا من «بيانات المزارع».");
     case "tool_orders": return ordersPage(ctx, "tool", "طلبات الأدوات والمنتجات");
     case "opt_orders": return ordersPage(ctx, "opt", "طلبات منتجات اختياري");
     case "codes": return codesPage(ctx);
@@ -491,7 +510,6 @@ export async function renderPage(tab: string, ctx: Ctx): Promise<Page> {
 }
 export async function navBadges(): Promise<Record<string, number>> {
   return {
-    farm_links: await count(`SELECT COUNT(*) c FROM farm_links WHERE status = 'review'`),
     farm_delivery: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'farm' AND status IN ('new','processing')`),
     tool_orders: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'tool' AND status = 'new'`),
     opt_orders: await count(`SELECT COUNT(*) c FROM orders WHERE kind = 'opt' AND status = 'new'`),

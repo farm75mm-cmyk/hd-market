@@ -7,10 +7,10 @@ import { ADMIN_EMAIL, ADMIN_USER } from "./core";
 import { assistAct } from "./assist";
 import { evAct } from "./events";
 import { pushSend, notifyUpdate } from "./broadcast";
-import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll, LINK_ST } from "./shop";
+import { cancelOrder, deliverOrder, adjustBalance, zeroWallet, pushAll, STAGES, STAGE_L } from "./shop";
 
 type F = (k: string) => string;
-const NO_GENERIC_AUDIT = new Set(["link_set", "admin_add", "admin_delete", "admin_ban", "admin_unban", "dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "wallet_zero", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
+const NO_GENERIC_AUDIT = new Set(["fd_stage", "fd_msg", "admin_add", "admin_delete", "admin_ban", "admin_unban", "dep_move", "dep_mismatch", "dep_reject", "dep_approve", "dep_reverse", "dep_cancel", "method_save", "method_toggle", "method_del", "rate_save", "bal_adjust", "wallet_zero", "order_status", "order_deliver", "support_reply", "ban", "unban", "unlock", "noavatar", "resetpw", "delete"]);
 const HIDE = new Set(["image", "csrf", "do", "token", "game_id", "codes", "password"]);
 const ORDER_ST = ["new", "processing", "done", "cancelled"];
 const bool = (v: string) => (v === "1" || v === "on" ? 1 : 0);
@@ -165,30 +165,33 @@ async function adminAct0(act: string, f: F, visibleForm: Record<string, string>)
       return "تم حفظ بيانات المزرعة";
     }
 
-    // ----- farm <-> e-mail link requests -----
-    case "link_set": {
-      const st = f("status"), note = f("note").trim().slice(0, 300);
-      if (!LINK_ST.includes(st)) return "حالة غير صالحة";
-      const l = await first(`SELECT * FROM farm_links WHERE id = $1`, [id]);
-      if (!l) return "الطلب غير موجود";
-      if (num(l.order_id) !== 0) return "تم استخدام هذا الربط في عملية شراء ولا يمكن تعديله";
-      if (st === "linked" && !num(l.verified)) return "لا يمكن اعتماد الربط قبل التحقق من ملكية البريد";
-      if (l.status === st && (l.admin_note ?? "") === note) return "لا تغيير";
-      const r = await run(`UPDATE farm_links SET status = $1, admin_note = $2, updated_at = $3 WHERE id = $4 AND order_id = 0 RETURNING id`, [st, note, t, id]);
-      if (!r.length) return "تعذّر التحديث";
-      await run(`INSERT INTO farm_link_log (link_id, actor, from_status, to_status, note, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [id, actor(), l.status, st, note, t]);
-      await audit(run, actor(), "farm_link_" + st, "farm_link", id, { from: l.status, note });
-      if (l.status !== st && st !== "review") {
-        const M: Record<string, [string, string, string, string]> = {
-          linked: ["تم ربط المزرعة", "تم ربط مزرعتك بنجاح بالبريد الإلكتروني المسجل، ويمكنك الآن متابعة عملية الشراء.", "Farm linked", "Your farm was successfully linked to your registered email. You can now continue with the purchase."],
-          failed: ["فشل ربط المزرعة", "تعذّر ربط مزرعتك بالبريد الإلكتروني." + (note ? " " + note : "") + " يمكنك إعادة المحاولة.", "Farm link failed", "We could not link your farm to your email." + (note ? " " + note : "") + " You can try again."],
-          rejected: ["رُفض طلب ربط المزرعة", "تم رفض طلب ربط مزرعتك." + (note ? " " + note : ""), "Farm link rejected", "Your farm link request was rejected." + (note ? " " + note : "")],
-        };
-        const m = M[st];
-        await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'order',$2,$3,$4,$5,$6,$7)`, [l.user_id, m[0], m[1], m[2], m[3], "LNK-" + id, t]);
-        await pushTo(Number(l.user_id), "HD Market", m[1], "notifications");
+    // ----- farm delivery management -----
+    case "fd_stage": case "fd_msg": {
+      const o = await first(`SELECT * FROM orders WHERE id = $1 AND kind = 'farm'`, [id]);
+      if (!o) return "الطلب غير موجود";
+      if (!["new", "processing"].includes(o.status)) return "لا يمكن تعديل طلب منتهٍ (مكتمل أو ملغي)";
+      const st = f("stage"), note = f("note").trim().slice(0, 500), msg = f("msg").trim().slice(0, 500), actorName = actor();
+      if (act === "fd_msg" && !msg) return "اكتب الرسالة أو اختر ردًا جاهزًا";
+      let newStage = o.stage ?? "";
+      if (act === "fd_stage") {
+        if (!STAGES.includes(st) || st === "delivered") return "مرحلة غير صالحة (التسليم يتم بزر «تم التسليم»)";
+        if (o.ftype !== "email" && ["awaiting_info", "verifying", "linked"].includes(st)) return "هذه المرحلة خاصة بالمزارع المربوطة بالبريد";
+        if (st === "linked" && !num(o.link_verified)) return "لا يمكن اعتماد الربط قبل أن يتحقق المستخدم من بريده";
+        newStage = st;
       }
-      return st === "linked" ? "تم تأكيد ربط المزرعة وإشعار المستخدم" : "تم تحديث حالة الطلب";
+      const changed = newStage !== (o.stage ?? "");
+      if (act === "fd_stage" && !changed && note === (o.admin_note ?? "") && msg === "") return "لا تغيير";
+      const procSt = ["verifying", "preparing", "linked", "action_required"].includes(newStage) ? "processing" : o.status;
+      await run(`UPDATE orders SET stage = $1, status = $2, admin_note = $3, user_msg = $4, updated_at = $5 WHERE id = $6 AND status IN ('new','processing')`, [newStage, procSt, act === "fd_stage" ? note : (o.admin_note ?? ""), msg || (o.user_msg ?? ""), t, id]);
+      await run(`INSERT INTO order_events (order_id, actor, kind, from_stage, to_stage, note, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, actorName, act === "fd_msg" ? "msg" : "stage", o.stage ?? "", newStage, [note ? "ملاحظة: " + note : "", msg ? "رسالة: " + msg : ""].filter(Boolean).join(" | "), t]);
+      await audit(run, actorName, act === "fd_msg" ? "farm_delivery_msg" : "farm_delivery_stage", "order", id, { from: o.stage ?? "", to: newStage });
+      if (msg || changed) {
+        const L = STAGE_L[newStage] ?? [newStage, newStage];
+        const body = msg || L[0];
+        await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'order',$2,$3,$4,$5,$6,$7)`, [o.user_id, L[0], body, L[1], msg || L[1], "ORD-" + id, t]);
+        await pushTo(Number(o.user_id), "HD Market", body, "orders");
+      }
+      return act === "fd_msg" ? "تم إرسال الرسالة للمستخدم" : "تم تحديث الحالة وإشعار المستخدم";
     }
 
     // ----- subscription codes -----

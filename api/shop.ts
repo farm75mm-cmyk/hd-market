@@ -21,21 +21,27 @@ await alter(`ALTER TABLE orders ADD COLUMN ref_id BIGINT NOT NULL DEFAULT 0`);
 await alter(`ALTER TABLE orders ADD COLUMN idem_key TEXT`);
 await alter(`ALTER TABLE orders ADD COLUMN farm_tag TEXT`);
 await alter(`ALTER TABLE orders ADD COLUMN farm_cap INT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE orders ADD COLUMN ftype TEXT NOT NULL DEFAULT 'token'`);
+await alter(`ALTER TABLE orders ADD COLUMN stage TEXT NOT NULL DEFAULT ''`);
+await alter(`ALTER TABLE orders ADD COLUMN link_email TEXT`);
+await alter(`ALTER TABLE orders ADD COLUMN link_verified INT NOT NULL DEFAULT 0`);
+await alter(`ALTER TABLE orders ADD COLUMN admin_note TEXT NOT NULL DEFAULT ''`);
+await alter(`ALTER TABLE orders ADD COLUMN user_msg TEXT NOT NULL DEFAULT ''`);
+await run(`CREATE TABLE IF NOT EXISTS order_events (id ${serial}, order_id BIGINT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'stage', from_stage TEXT NOT NULL DEFAULT '', to_stage TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL)`);
+await run(`CREATE INDEX IF NOT EXISTS order_events_o ON order_events (order_id, id)`);
+export const STAGES = ["created", "paid", "awaiting_info", "verifying", "preparing", "linked", "delivered", "action_required"];
+export const STAGE_L: Record<string, [string, string]> = {
+  created: ["تم إنشاء الطلب", "Order created"], paid: ["تم تأكيد الدفع", "Payment confirmed"], awaiting_info: ["بانتظار معلومات الربط", "Waiting for link info"],
+  verifying: ["جارٍ التحقق من المعلومات", "Verifying information"], preparing: ["جارٍ تجهيز المزرعة", "Preparing your farm"], linked: ["تم ربط المزرعة بنجاح", "Farm linked successfully"],
+  delivered: ["تم تسليم المزرعة", "Farm delivered"], action_required: ["يحتاج الطلب إلى إجراء منك", "Action required from you"],
+};
 await alter(`ALTER TABLE products ADD COLUMN need_tag INT NOT NULL DEFAULT 0`);
 await run(`CREATE TABLE IF NOT EXISTS tag_usage (product_id BIGINT NOT NULL, tag TEXT NOT NULL, qty INT NOT NULL DEFAULT 0, PRIMARY KEY (product_id, tag))`);
 await alter(`ALTER TABLE products ADD COLUMN descr TEXT`);
 await alter(`ALTER TABLE products ADD COLUMN kind TEXT NOT NULL DEFAULT 'tool'`);
 await run(`CREATE UNIQUE INDEX IF NOT EXISTS order_idem ON orders (user_id, idem_key)`);
-// farm <-> e-mail link requests (admin links the farm outside the app, then confirms here)
-await run(`CREATE TABLE IF NOT EXISTS farm_links (id ${serial}, user_id BIGINT NOT NULL, farm_id BIGINT NOT NULL, farm_name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL, token TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'review', verified INT NOT NULL DEFAULT 0, verified_at BIGINT NOT NULL DEFAULT 0, admin_note TEXT NOT NULL DEFAULT '', order_id BIGINT NOT NULL DEFAULT 0,
-  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)`);
-await run(`CREATE INDEX IF NOT EXISTS farm_links_user ON farm_links (user_id, id)`);
-await run(`CREATE UNIQUE INDEX IF NOT EXISTS farm_links_active ON farm_links (user_id, farm_id) WHERE status IN ('review','linked') AND order_id = 0`);
-await run(`CREATE TABLE IF NOT EXISTS farm_link_log (id ${serial}, link_id BIGINT NOT NULL, actor TEXT NOT NULL, from_status TEXT NOT NULL DEFAULT '', to_status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL)`);
+// farm delivery: type (token | email), stage, e-mail link, admin note + user message, event log
 await run(`CREATE TABLE IF NOT EXISTS link_codes (user_id BIGINT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at BIGINT NOT NULL, attempts INT NOT NULL DEFAULT 0, sent_at BIGINT NOT NULL, win_start BIGINT NOT NULL DEFAULT 0, sends INT NOT NULL DEFAULT 0)`);
-export const LINK_ST = ["review", "linked", "failed", "rejected"];
-const linkOut = (l: Row) => ({ id: num(l.id), farm_id: num(l.farm_id), farm_name: l.farm_name, email: l.email, status: l.status, verified: num(l.verified), note: l.admin_note ?? "", can_buy: l.status === "linked" && !num(l.order_id), used: num(l.order_id) > 0, created_at: num(l.created_at), updated_at: num(l.updated_at) });
 await run(`CREATE TABLE IF NOT EXISTS farms (id ${serial}, name TEXT NOT NULL, image TEXT, descr TEXT, level INT NOT NULL DEFAULT 0, price DOUBLE PRECISION NOT NULL DEFAULT 0,
   active INT NOT NULL DEFAULT 1, sold INT NOT NULL DEFAULT 0, buyer_id BIGINT NOT NULL DEFAULT 0, order_id BIGINT NOT NULL DEFAULT 0, sold_at BIGINT NOT NULL DEFAULT 0,
   game_id TEXT, token TEXT, created_at BIGINT NOT NULL)`);
@@ -148,7 +154,7 @@ async function placeOrder(q: Q, u: Row, cur: string, o: OrderIn) {
 const ordOut = (o: Row) => {
   let lines: any = null; try { lines = o.lines ? JSON.parse(o.lines) : null; } catch {}
   const showDelivery = o.delivery && (o.kind !== "farm" || o.status === "done");
-  return { farm_tag: o.farm_tag ?? null, farm_cap: num(o.farm_cap), id: num(o.id), kind: o.kind ?? "tool", name: o.product_name, qty: num(o.qty), total: num(o.total), currency: o.currency ?? "JOD", status: o.status, created_at: num(o.created_at), updated_at: num(o.updated_at), lines, delivery: showDelivery ? o.delivery : null, delivered_at: num(o.delivered_at) };
+  return { ftype: o.ftype ?? "token", stage: o.stage ?? "", link_email: o.link_email ?? null, link_verified: num(o.link_verified), user_msg: o.user_msg ?? "", farm_tag: o.farm_tag ?? null, farm_cap: num(o.farm_cap), id: num(o.id), kind: o.kind ?? "tool", name: o.product_name, qty: num(o.qty), total: num(o.total), currency: o.currency ?? "JOD", status: o.status, created_at: num(o.created_at), updated_at: num(o.updated_at), lines, delivery: showDelivery ? o.delivery : null, delivered_at: num(o.delivered_at) };
 };
 const curOf = (b: Row) => (CURRENCIES.includes(String(b.currency)) ? String(b.currency) : "JOD");
 const expOf = (b: Row) => { const v = Number(b.expect); return Number.isFinite(v) && v > 0 ? v : undefined; };
@@ -270,11 +276,14 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
       return ro;
     }));
   },
-  // ----- farm <-> e-mail link -----
-  async link_code(b) {
+  // ----- farm delivery by e-mail link (user side) -----
+  async fd_code(b) {
     const u = await authUser(b);
     const email = String(b.email ?? "").trim().toLowerCase(), lang = String(b.lang ?? "ar"), t = nowS();
     if (!validEmail(email)) throw new Fail("invalid_email");
+    const o = await first(`SELECT id, status, ftype, stage FROM orders WHERE id = $1 AND user_id = $2 AND kind = 'farm'`, [Number(b.order_id), u.id]);
+    if (!o) throw new Fail("not_found", 404);
+    if (o.ftype !== "email" || !["new", "processing"].includes(o.status) || !["awaiting_info", "action_required"].includes(o.stage)) throw new Fail("bad_transition", 409);
     const prev = await first(`SELECT * FROM link_codes WHERE user_id = $1`, [u.id]);
     if (prev && t - num(prev.sent_at) < 60) throw new Fail("too_many", 429, { wait: 60 - (t - num(prev.sent_at)) });
     const inWin = prev && t - num(prev.win_start) < 3600;
@@ -289,49 +298,39 @@ export const SHOP: Record<string, (b: Row) => Promise<Response>> = {
     }
     return ok({ sent: true });
   },
-  async link_submit(b) {
+  async fd_verify(b) {
     const u = await authUser(b);
-    const fid = Math.floor(Number(b.farm_id)), email = String(b.email ?? "").trim().toLowerCase(), token = String(b.farm_token ?? "").trim(), code = String(b.code ?? "").replace(/\D/g, ""), t = nowS();
-    if (!(fid > 0) || !validEmail(email) || token.length < 6 || token.length > 2000 || code.length !== 6) throw new Fail("invalid");
-    const farm = await first(`SELECT id, name FROM farms WHERE id = $1 AND active = 1 AND sold = 0`, [fid]);
-    if (!farm) throw new Fail("not_found", 404);
-    const act = await first(`SELECT * FROM farm_links WHERE user_id = $1 AND farm_id = $2 AND status IN ('review','linked') AND order_id = 0`, [u.id, fid]);
-    if (act) return ok({ link: linkOut(act), duplicate: true });
+    const email = String(b.email ?? "").trim().toLowerCase(), code = String(b.code ?? "").replace(/\D/g, ""), t = nowS();
+    if (!validEmail(email) || code.length !== 6) throw new Fail("invalid");
+    const o = await first(`SELECT * FROM orders WHERE id = $1 AND user_id = $2 AND kind = 'farm'`, [Number(b.order_id), u.id]);
+    if (!o) throw new Fail("not_found", 404);
+    if (num(o.link_verified) && o.link_email === email) return ok({ order: ordOut(o), balances: await balancesOf(u.id), duplicate: true });
+    if (o.ftype !== "email" || !["new", "processing"].includes(o.status) || !["awaiting_info", "action_required"].includes(o.stage)) throw new Fail("bad_transition", 409);
     const lc = await first(`SELECT * FROM link_codes WHERE user_id = $1`, [u.id]);
     if (!lc || lc.email !== email || num(lc.expires_at) < t || num(lc.attempts) >= 5) throw new Fail("invalid_code");
     if (!safeEq(String(lc.code_hash), hmac(SECRET + "link" + u.id + email, code))) { await run(`UPDATE link_codes SET attempts = attempts + 1 WHERE user_id = $1`, [u.id]); throw new Fail("invalid_code"); }
-    if (await first(`SELECT id FROM farm_links WHERE token = $1 AND user_id <> $2 AND status IN ('review','linked')`, [token, u.id])) throw new Fail("token_used", 409);
-    try {
-      const id = await withTx(async (q) => {
-        const r = await q(`INSERT INTO farm_links (user_id, farm_id, farm_name, email, token, status, verified, verified_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'review',1,$6,$6,$6) RETURNING id`, [u.id, fid, String(farm.name).slice(0, 200), email, token.slice(0, 2000), t]);
-        await q(`INSERT INTO farm_link_log (link_id, actor, from_status, to_status, note, created_at) VALUES ($1,$2,'','review','',$3)`, [r[0].id, "user:" + u.id, t]);
-        await q(`DELETE FROM link_codes WHERE user_id = $1`, [u.id]);
-        return num(r[0].id);
-      });
-      return ok({ link: linkOut((await first(`SELECT * FROM farm_links WHERE id = $1`, [id]))!) });
-    } catch (e) {
-      if (isDup(e)) { const x = await first(`SELECT * FROM farm_links WHERE user_id = $1 AND farm_id = $2 AND status IN ('review','linked') AND order_id = 0`, [u.id, fid]); if (x) return ok({ link: linkOut(x), duplicate: true }); }
-      throw e;
-    }
-  },
-  async link_list(b) {
-    const u = await authUser(b);
-    return ok({ links: (await run(`SELECT * FROM farm_links WHERE user_id = $1 ORDER BY id DESC LIMIT 50`, [u.id])).map(linkOut) });
+    await withTx(async (q) => {
+      const r = await q(`UPDATE orders SET link_email = $1, link_verified = 1, stage = 'verifying', status = 'processing', updated_at = $2 WHERE id = $3 AND user_id = $4 AND stage IN ('awaiting_info','action_required') AND status IN ('new','processing') RETURNING id`, [email, t, o.id, u.id]);
+      if (!r.length) throw new Fail("bad_transition", 409);
+      await q(`INSERT INTO order_events (order_id, actor, kind, from_stage, to_stage, note, created_at) VALUES ($1,$2,'stage',$3,'verifying','email verified',$4)`, [o.id, "user:" + u.id, o.stage, t]);
+      await q(`DELETE FROM link_codes WHERE user_id = $1`, [u.id]);
+    });
+    return ok({ order: ordOut((await first(`SELECT * FROM orders WHERE id = $1`, [o.id]))!), balances: await balancesOf(u.id) });
   },
   async farm_buy(b) {
     const u = await authUser(b);
     const cur = curOf(b), idem = idemOf(b);
     const dup = await dupOrder(u.id, idem); if (dup) return dup;
-    const linkId = Math.floor(Number(b.link_id)) || 0;
+    const ftype = b.ftype === "email" ? "email" : "token";
     return finish(u.id, idem, () => withTx(async (q) => {
-      // linked purchase: only with an admin-confirmed link of this user for this farm, usable once
-      if (linkId) { const lk = (await q(`UPDATE farm_links SET order_id = -1, updated_at = $1 WHERE id = $2 AND user_id = $3 AND farm_id = $4 AND status = 'linked' AND order_id = 0 RETURNING id`, [nowS(), linkId, u.id, Number(b.id)]))[0]; if (!lk) throw new Fail("link_required", 403); }
       const f = (await q(`UPDATE farms SET qty = qty - 1, sold = CASE WHEN qty <= 1 THEN 1 ELSE 0 END, buyer_id = $1, sold_at = $2 WHERE id = $3 AND sold = 0 AND active = 1 AND qty >= 1 RETURNING *`, [u.id, nowS(), Number(b.id)]))[0];
       if (!f) throw new Fail("out_of_stock", 409);
       const fa = await lineAmt(q, "farm", num(f.id), cur, num(f.price), 1, await getRates(q));
       const r = await placeOrder(q, u, cur, { over: fa.ov ? fa.amt : null, kind: "farm", name: f.name, qty: 1, usdt: num(f.price), lines: [{ id: num(f.id), n: f.name, q: 1, p: num(f.price) }], refId: num(f.id), idem, expect: expOf(b) });
       await q(`UPDATE farms SET order_id = $1 WHERE id = $2`, [r.id, f.id]);
-      if (linkId) await q(`UPDATE farm_links SET order_id = $1 WHERE id = $2`, [r.id, linkId]);
+      const st0 = ftype === "email" ? "awaiting_info" : "paid";
+      await q(`UPDATE orders SET ftype = $1, stage = $2 WHERE id = $3`, [ftype, st0, r.id]);
+      await q(`INSERT INTO order_events (order_id, actor, kind, from_stage, to_stage, note, created_at) VALUES ($1,$2,'stage','created',$3,$4,$5)`, [r.id, "user:" + u.id, st0, ftype, nowS()]);
       return r;
     }));
   },
@@ -426,17 +425,22 @@ export async function deliverOrder(id: number, actor: string, note = ""): Promis
   let text = note.trim();
   if (o.kind === "farm") {
     const f = await first(`SELECT game_id, token FROM farms WHERE id = $1`, [o.ref_id]);
-    const lk = await first(`SELECT email FROM farm_links WHERE order_id = $1`, [id]);
-    if (!lk && (!f || (!f.game_id && !f.token && !text))) return "أدخل بيانات المزرعة (ID / Token) أولًا من صفحة «بيانات المزارع»";
-    text = [lk ? `تم ربط المزرعة بالبريد: ${lk.email}` : "", f?.game_id ? `ID: ${f.game_id}` : "", !lk && f?.token ? `Token: ${f.token}` : "", text].filter(Boolean).join("\n");
+    if (o.ftype === "email") {
+      if (!num(o.link_verified) || !o.link_email) return "لا يمكن التسليم قبل أن يتحقق المستخدم من بريده الإلكتروني";
+      text = [`تم ربط المزرعة بالبريد: ${o.link_email}`, f?.game_id ? `ID: ${f.game_id}` : "", text].filter(Boolean).join("\n");
+    } else {
+      if (!f || (!f.game_id && !f.token && !text)) return "أدخل بيانات المزرعة (ID / Token) أولًا من صفحة «بيانات المزارع»";
+      text = [f.game_id ? `ID: ${f.game_id}` : "", f.token ? `Token: ${f.token}` : "", text].filter(Boolean).join("\n");
+    }
   }
   const t = nowS();
-  const r = await run(`UPDATE orders SET status = 'done', delivery = $1, delivered_at = $2, updated_at = $2 WHERE id = $3 AND status IN ('new','processing') RETURNING id`, [text || null, t, id]);
+  const r = await run(`UPDATE orders SET status = 'done', stage = CASE WHEN kind = 'farm' THEN 'delivered' ELSE stage END, delivery = $1, delivered_at = $2, updated_at = $2 WHERE id = $3 AND status IN ('new','processing') RETURNING id`, [text || null, t, id]);
   if (!r.length) return "تمت معالجة الطلب مسبقًا";
+  if (o.kind === "farm") await run(`INSERT INTO order_events (order_id, actor, kind, from_stage, to_stage, note, created_at) VALUES ($1,$2,'stage',$3,'delivered','',$4)`, [id, actor, o.stage ?? "", t]);
   await audit(run, actor, "deliver_order", "order", id, { kind: o.kind });
   await run(`INSERT INTO notifications (user_id, kind, title, body, title_en, body_en, ref, created_at) VALUES ($1,'order',$2,$3,$4,$5,$6,$7)`,
     o.kind === "farm"
-      ? [o.user_id, "تم تسليم مزرعتك", `تم تسليم مزرعتك بنجاح (الطلب #${id}). افتح «مشترياتي» لعرض التفاصيل.`, "Your farm was delivered", `Your farm was delivered successfully (order #${id}). Open "Purchases" for details.`, "ORD-" + id, t]
+      ? [o.user_id, "تم تسليم مزرعتك", "تم تسليم مزرعتك بنجاح! يمكنك الآن فتح المزرعة والبدء باستخدامها", "Your farm was delivered", "Your farm was delivered successfully! You can now open it and start using it.", "ORD-" + id, t]
       : [o.user_id, "تم تسليم طلبك", `تم تسليم الطلب #${id}. افتح «طلباتي» لعرض التفاصيل.`, "Your order was delivered", `Order #${id} was delivered. Open "My orders" for details.`, "ORD-" + id, t]);
   await notifyOrderPush(id, o.kind === "farm" ? "تم تسليم مزرعتك" : "تم تسليم طلبك");
   return "تم التسليم وإرسال البيانات للمستخدم";
